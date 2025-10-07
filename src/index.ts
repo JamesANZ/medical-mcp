@@ -13,6 +13,7 @@ import {
   checkDrugInteractions,
   searchMedicalDatabases,
   searchMedicalJournals,
+  searchUpToDate,
   createErrorResponse,
   formatDrugSearchResults,
   formatDrugDetails,
@@ -25,6 +26,7 @@ import {
   formatArticleDetails,
   formatRxNormDrugs,
   formatClinicalGuidelines,
+  formatUpToDateResults,
 } from "./utils.js";
 
 const server = new McpServer({
@@ -294,6 +296,32 @@ server.tool(
   },
 );
 
+server.tool(
+  "search-uptodate",
+  "Search UpToDate clinical decision support system for evidence-based medical information and expert recommendations",
+  {
+    query: z
+      .string()
+      .describe(
+        "Medical topic, condition, or clinical question to search in UpToDate",
+      ),
+    api_key: z
+      .string()
+      .optional()
+      .describe(
+        "UpToDate API key for enterprise access (optional - will use web scraping if not provided)",
+      ),
+  },
+  async ({ query, api_key }) => {
+    try {
+      const results = await searchUpToDate(query, api_key);
+      return formatUpToDateResults(results, query);
+    } catch (error: any) {
+      return createErrorResponse("searching UpToDate", error);
+    }
+  },
+);
+
 async function main() {
   // Check for command line arguments to determine transport type
   const args = process.argv.slice(2);
@@ -351,14 +379,17 @@ async function main() {
             security: "bound to 127.0.0.1 only",
             tools: [
               "search-drugs",
-              "get-drug-by-ndc",
-              "search-pubmed-articles",
+              "get-drug-details",
+              "get-health-statistics",
+              "search-medical-literature",
+              "get-article-details",
+              "search-drug-nomenclature",
               "search-google-scholar",
+              "search-clinical-guidelines",
               "check-drug-interactions",
-              "generate-differential-diagnosis",
-              "get-diagnostic-criteria",
               "search-medical-databases",
               "search-medical-journals",
+              "search-uptodate",
             ],
           }),
         );

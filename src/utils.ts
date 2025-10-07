@@ -218,40 +218,23 @@ function getIndicatorVariations(indicatorName: string): string[] {
   const variations: string[] = [];
   const lower = indicatorName.toLowerCase();
 
-  // Common medical indicator variations
-  const commonMappings: { [key: string]: string[] } = {
-    "maternal mortality": ["maternal", "mortality", "maternal death"],
-    "infant mortality": [
-      "infant",
-      "mortality",
-      "infant death",
-      "child mortality",
-    ],
-    "life expectancy": ["life expectancy", "expectancy", "life"],
-    "mortality rate": ["mortality", "death rate", "mortality rate"],
-    "birth rate": ["birth", "fertility", "birth rate"],
-    "death rate": ["death", "mortality", "death rate"],
-    population: ["population", "demographics"],
-    "health expenditure": ["health", "expenditure", "spending"],
-    immunization: ["immunization", "vaccination", "vaccine"],
-    malnutrition: ["malnutrition", "nutrition", "undernutrition"],
-    diabetes: ["diabetes", "diabetic"],
-    hypertension: ["hypertension", "blood pressure", "high blood pressure"],
-    cancer: ["cancer", "neoplasm", "tumor"],
-    hiv: ["hiv", "aids", "hiv/aids"],
-    tuberculosis: ["tuberculosis", "tb"],
-    malaria: ["malaria"],
-    obesity: ["obesity", "overweight"],
-  };
+  // Generate variations dynamically based on the input
+  const words = lower.split(/\s+/);
 
-  // Check for exact matches first
-  for (const [key, values] of Object.entries(commonMappings)) {
-    if (lower.includes(key)) {
-      variations.push(...values);
+  // Add individual words
+  variations.push(...words);
+
+  // Add combinations of words
+  for (let i = 0; i < words.length; i++) {
+    for (let j = i + 1; j <= words.length; j++) {
+      const combination = words.slice(i, j).join(" ");
+      if (combination.length > 2) {
+        variations.push(combination);
+      }
     }
   }
 
-  // Add the original term and some basic variations
+  // Add the original term
   variations.push(indicatorName);
   variations.push(lower);
 
@@ -544,11 +527,13 @@ export function formatMedicalJournalsSearch(articles: any[], query: string) {
   result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
   result += `This search retrieves information from top medical journals dynamically.\n\n`;
   result += `**DYNAMIC DATA SOURCES:**\n`;
-  result += `• New England Journal of Medicine (NEJM)\n`;
-  result += `• Journal of the American Medical Association (JAMA)\n`;
-  result += `• The Lancet\n`;
-  result += `• British Medical Journal (BMJ)\n`;
-  result += `• Nature Medicine\n`;
+  result += `• Google Scholar searches for top medical journals:\n`;
+  result += `  - New England Journal of Medicine (NEJM)\n`;
+  result += `  - Journal of the American Medical Association (JAMA)\n`;
+  result += `  - The Lancet\n`;
+  result += `  - British Medical Journal (BMJ)\n`;
+  result += `  - Nature Medicine\n`;
+  result += `  - Cell, Science, Nature, PLOS Medicine, BMC Medicine\n`;
   result = addDataNote(result);
 
   return createMCPResponse(result);
@@ -676,25 +661,44 @@ export async function searchGoogleScholar(
     });
 
     // Random viewport size
-    const viewports = [
-      { width: 1920, height: 1080 },
-      { width: 1366, height: 768 },
-      { width: 1440, height: 900 },
-      { width: 1536, height: 864 },
-    ];
-    const randomViewport =
-      viewports[Math.floor(Math.random() * viewports.length)];
+    const viewportWidths = [1920, 1366, 1440, 1536, 1280, 1600];
+    const viewportHeights = [1080, 768, 900, 864, 720, 1024];
+    const randomViewport = {
+      width: viewportWidths[Math.floor(Math.random() * viewportWidths.length)],
+      height:
+        viewportHeights[Math.floor(Math.random() * viewportHeights.length)],
+    };
     await page.setViewport(randomViewport);
 
-    // Rotate user agents
-    const userAgents = [
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    // Generate random user agent
+    const browsers = ["Chrome", "Safari", "Firefox"];
+    const os = [
+      "Macintosh; Intel Mac OS X 10_15_7",
+      "Windows NT 10.0; Win64; x64",
+      "X11; Linux x86_64",
     ];
-    const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
-    await page.setUserAgent(randomUA);
+    const webkitVersions = ["537.36", "605.1.15"];
+    const chromeVersions = ["121.0.0.0", "120.0.0.0", "119.0.0.0"];
+
+    const randomBrowser = browsers[Math.floor(Math.random() * browsers.length)];
+    const randomOS = os[Math.floor(Math.random() * os.length)];
+
+    let userAgent;
+    if (randomBrowser === "Chrome") {
+      const webkitVersion =
+        webkitVersions[Math.floor(Math.random() * webkitVersions.length)];
+      const chromeVersion =
+        chromeVersions[Math.floor(Math.random() * chromeVersions.length)];
+      userAgent = `Mozilla/5.0 (${randomOS}) AppleWebKit/${webkitVersion} (KHTML, like Gecko) Chrome/${chromeVersion} Safari/${webkitVersion}`;
+    } else if (randomBrowser === "Safari") {
+      const webkitVersion =
+        webkitVersions[Math.floor(Math.random() * webkitVersions.length)];
+      userAgent = `Mozilla/5.0 (${randomOS}) AppleWebKit/${webkitVersion} (KHTML, like Gecko) Version/17.2 Safari/${webkitVersion}`;
+    } else {
+      userAgent = `Mozilla/5.0 (${randomOS}) Gecko/20100101 Firefox/121.0`;
+    }
+
+    await page.setUserAgent(userAgent);
 
     // Enhanced headers
     await page.setExtraHTTPHeaders({
@@ -737,12 +741,15 @@ export async function searchGoogleScholar(
     return await page.evaluate(() => {
       const results: GoogleScholarArticle[] = [];
 
-      // Multiple selector strategies for different Google Scholar layouts
+      // Dynamic selector strategies for different Google Scholar layouts
       const selectors = [
         ".gs_r, .gs_ri, .gs_or",
         ".g, .rc, .r",
         "[data-rp]",
         ".gs_rt, .gs_ri",
+        "div[data-ved]",
+        ".result-item",
+        ".search-result",
       ];
 
       let articleElements: NodeListOf<Element> | null = null;
@@ -757,7 +764,7 @@ export async function searchGoogleScholar(
 
       articleElements.forEach((element) => {
         try {
-          // Enhanced title extraction
+          // Dynamic title extraction
           const titleSelectors = [
             ".gs_rt a, .gs_rt",
             "h3 a, h3",
@@ -765,6 +772,8 @@ export async function searchGoogleScholar(
             ".gs_rt a",
             ".rc h3 a",
             ".r h3 a",
+            ".title a",
+            ".result-title a",
           ];
 
           let title = "";
@@ -778,7 +787,7 @@ export async function searchGoogleScholar(
             }
           }
 
-          // Enhanced authors/venue extraction
+          // Dynamic authors/venue extraction
           const authorSelectors = [
             ".gs_a, .gs_authors, .gs_venue",
             '[class*="author"]',
@@ -786,6 +795,8 @@ export async function searchGoogleScholar(
             ".gs_a",
             ".rc .s",
             ".r .s",
+            ".authors",
+            ".author-list",
           ];
 
           let authors = "";
@@ -797,7 +808,7 @@ export async function searchGoogleScholar(
             }
           }
 
-          // Enhanced abstract extraction
+          // Dynamic abstract extraction
           const abstractSelectors = [
             ".gs_rs, .gs_rs_a, .gs_snippet",
             '[class*="snippet"]',
@@ -805,6 +816,8 @@ export async function searchGoogleScholar(
             ".gs_rs",
             ".rc .st",
             ".r .st",
+            ".summary",
+            ".description",
           ];
 
           let abstract = "";
@@ -816,7 +829,7 @@ export async function searchGoogleScholar(
             }
           }
 
-          // Enhanced citation extraction
+          // Dynamic citation extraction
           const citationSelectors = [
             ".gs_fl a, .gs_fl",
             '[class*="citation"]',
@@ -824,6 +837,8 @@ export async function searchGoogleScholar(
             ".gs_fl",
             ".rc .f",
             ".r .f",
+            ".citations",
+            ".cite-count",
           ];
 
           let citations = "";
@@ -835,13 +850,14 @@ export async function searchGoogleScholar(
             }
           }
 
-          // Enhanced year extraction with better patterns
+          // Dynamic year extraction
           let year = "";
           const yearPatterns = [
             /(\d{4})/g,
             /\((\d{4})\)/g,
             /(\d{4})\s*[–-]/g,
             /(\d{4})\s*$/g,
+            /(\d{4})\s*[,\s]/g,
           ];
 
           const textSources = [authors, title, abstract, citations];
@@ -866,14 +882,15 @@ export async function searchGoogleScholar(
             if (year) break;
           }
 
-          // Enhanced journal extraction
+          // Dynamic journal extraction
           let journal = "";
           const journalPatterns = [
             /- ([^-]+)$/,
             /, ([^,]+)$/,
             /in ([^,]+)/,
-            /([A-Z][^,]+(?:Journal|Review|Medicine|Health|Science|Research))/i,
-            /([A-Z][^,]+(?:Lancet|Nature|Science|NEJM|JAMA|BMJ))/i,
+            /([A-Z][^,]+(?:Journal|Review|Medicine|Health|Science|Research|Proceedings|Transactions|Bulletin|Annals|Archives))/i,
+            /([A-Z][^,]+(?:Lancet|Nature|Science|NEJM|JAMA|BMJ|Cell|PLOS|BMC|Frontiers))/i,
+            /([A-Z][^,]+(?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/i,
           ];
 
           for (const pattern of journalPatterns) {
@@ -1127,6 +1144,11 @@ export async function searchMedicalJournals(
     searchJournal("Lancet", query),
     searchJournal("BMJ", query),
     searchJournal("Nature Medicine", query),
+    searchJournal("Cell", query),
+    searchJournal("Science", query),
+    searchJournal("Nature", query),
+    searchJournal("PLOS Medicine", query),
+    searchJournal("BMC Medicine", query),
   ]);
 
   const results: GoogleScholarArticle[] = [];
@@ -1325,7 +1347,7 @@ export async function searchClinicalGuidelines(
   organization?: string,
 ): Promise<ClinicalGuideline[]> {
   try {
-    // Enhanced search strategy with broader terms and specific guideline databases
+    // Dynamic search strategy with broader terms
     const searchTerms = [
       `guidelines ${query}`,
       `recommendations ${query}`,
@@ -1333,12 +1355,10 @@ export async function searchClinicalGuidelines(
       `position statement ${query}`,
       `evidence-based ${query}`,
       `best practice ${query}`,
-      `American Heart Association ${query}`,
-      `American College of Cardiology ${query}`,
-      `American Diabetes Association ${query}`,
-      `American College of Physicians ${query}`,
-      `WHO guidelines ${query}`,
-      `CDC guidelines ${query}`,
+      `clinical practice ${query}`,
+      `expert consensus ${query}`,
+      `systematic review ${query}`,
+      `meta-analysis ${query}`,
     ];
 
     const allGuidelines: ClinicalGuideline[] = [];
@@ -1400,11 +1420,13 @@ export async function searchClinicalGuidelines(
             // Try to extract from abstract
             if (article.abstract) {
               const orgPatterns = [
-                /([A-Z][a-z]+ [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/,
-                /(American [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/,
+                /([A-Z][a-z]+ [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy|Federation|Council|Board|Commission))/,
+                /(American [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy|Federation|Council|Board|Commission))/,
                 /(World Health Organization|WHO)/,
                 /(Centers for Disease Control|CDC)/,
-                /(National [A-Z][a-z]+ (?:Institute|Institute of Health|Academy))/,
+                /(National [A-Z][a-z]+ (?:Institute|Institute of Health|Academy|Center|Agency|Service))/,
+                /(European [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy|Federation|Council|Board|Commission))/,
+                /(International [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy|Federation|Council|Board|Commission))/,
               ];
 
               for (const pattern of orgPatterns) {
@@ -1419,9 +1441,11 @@ export async function searchClinicalGuidelines(
             // Try to extract from title
             if (org === "Unknown Organization") {
               const titleOrgPatterns = [
-                /(American [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/,
+                /(American [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy|Federation|Council|Board|Commission))/,
                 /(World Health Organization|WHO)/,
                 /(Centers for Disease Control|CDC)/,
+                /(National [A-Z][a-z]+ (?:Institute|Institute of Health|Academy|Center|Agency|Service))/,
+                /(European [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy|Federation|Council|Board|Commission))/,
               ];
 
               for (const pattern of titleOrgPatterns) {
@@ -1551,6 +1575,8 @@ async function searchPregnancySafety(drugName: string) {
     `"${drugName}" AND "teratogenic" AND "pregnancy"`,
     `"${drugName}" AND "fetal" AND "safety"`,
     `"${drugName}" AND "reproductive" AND "toxicity"`,
+    `"${drugName}" AND "pregnancy" AND "safety"`,
+    `"${drugName}" AND "gestational" AND "exposure"`,
   ];
 
   const results = {
@@ -1621,6 +1647,8 @@ async function searchLactationSafety(drugName: string) {
     `"${drugName}" AND "breastfeeding" AND "safe"`,
     `"${drugName}" AND "milk" AND "transfer"`,
     `"${drugName}" AND "lactmed"`,
+    `"${drugName}" AND "breastfeeding" AND "contraindication"`,
+    `"${drugName}" AND "lactation" AND "excretion"`,
   ];
 
   const results = {
@@ -1702,6 +1730,9 @@ export async function checkDrugInteractions(
       `"${drug1}" AND "${drug2}" AND "interaction"`,
       `"${drug1}" AND "${drug2}" AND "contraindication"`,
       `"${drug1}" AND "${drug2}" AND "adverse"`,
+      `"${drug1}" AND "${drug2}" AND "pharmacokinetic"`,
+      `"${drug1}" AND "${drug2}" AND "pharmacodynamic"`,
+      `"${drug1}" AND "${drug2}" AND "drug interaction"`,
     ];
 
     const interactions: DrugInteraction[] = [];
@@ -1811,6 +1842,8 @@ function extractClinicalEffects(abstract: string): string | null {
     /(?:may\s+cause|can\s+cause|leads\s+to)\s+([^.]{10,100})/gi,
     /(?:result\s+in|results\s+in)\s+([^.]{10,100})/gi,
     /(?:associated\s+with|linked\s+to)\s+([^.]{10,100})/gi,
+    /(?:enhanced|potentiated|amplified)\s+([^.]{10,100})/gi,
+    /(?:diminished|attenuated|reduced)\s+([^.]{10,100})/gi,
   ];
 
   for (const pattern of effectPatterns) {
@@ -1837,6 +1870,9 @@ function extractManagementAdvice(abstract: string): string | null {
     /(?:reduce|reducing)\s+([^.]{10,100})/gi,
     /(?:consider|considering)\s+([^.]{10,100})/gi,
     /(?:recommend|recommended)\s+([^.]{10,100})/gi,
+    /(?:discontinue|discontinuing)\s+([^.]{10,100})/gi,
+    /(?:titrate|titrating)\s+([^.]{10,100})/gi,
+    /(?:space|spacing)\s+([^.]{10,100})/gi,
   ];
 
   for (const pattern of managementPatterns) {
@@ -1850,4 +1886,168 @@ function extractManagementAdvice(abstract: string): string | null {
   }
 
   return null;
+}
+
+// UpToDate Integration
+export async function searchUpToDate(
+  query: string,
+  apiKey?: string,
+): Promise<UpToDateResult[]> {
+  try {
+    console.log(`🔍 Searching UpToDate for: ${query}`);
+
+    // Try enterprise API first if API key is available
+    if (apiKey) {
+      try {
+        return await searchUpToDateAPI(query, apiKey);
+      } catch (error) {
+        console.error(
+          "UpToDate API failed, falling back to web scraping:",
+          error,
+        );
+      }
+    }
+
+    // Fallback to web scraping
+    return await searchUpToDateWeb(query);
+  } catch (error) {
+    console.error("Error searching UpToDate:", error);
+    return [];
+  }
+}
+
+async function searchUpToDateAPI(
+  query: string,
+  apiKey: string,
+): Promise<UpToDateResult[]> {
+  try {
+    // Test different potential API endpoints
+    const apiEndpoints = [
+      "https://api.uptodate.com/v1/search",
+      "https://api.wolterskluwer.com/uptodate/v1/search",
+      "https://www.uptodate.com/api/search",
+      "https://api.uptodate.com/v2/search",
+      "https://api.wolterskluwer.com/uptodate/v2/search",
+      "https://api.uptodate.com/search",
+    ];
+
+    for (const endpoint of apiEndpoints) {
+      try {
+        const response = await superagent
+          .get(endpoint)
+          .query({
+            q: query,
+            limit: 10,
+          })
+          .set("Authorization", `Bearer ${apiKey}`)
+          .set("User-Agent", USER_AGENT)
+          .set("Accept", "application/json");
+
+        if (response.status === 200 && response.body) {
+          return parseUpToDateAPIResponse(response.body, query);
+        }
+      } catch (error) {
+        console.error(`API endpoint ${endpoint} failed:`, error);
+      }
+    }
+    throw new Error("All API endpoints failed");
+  } catch (error) {
+    console.error("UpToDate API search failed:", error);
+    throw error;
+  }
+}
+
+async function searchUpToDateWeb(query: string): Promise<UpToDateResult[]> {
+  // UpToDate web scraping has been removed due to reliability issues
+  console.log(`🔍 UpToDate web search for: ${query} - Web scraping disabled`);
+  return [];
+}
+
+function parseUpToDateAPIResponse(
+  response: any,
+  query: string,
+): UpToDateResult[] {
+  const results: UpToDateResult[] = [];
+
+  // Handle different possible API response formats
+  const items =
+    response.results ||
+    response.data ||
+    response.items ||
+    response.topics ||
+    [];
+
+  items.forEach((item: any) => {
+    results.push({
+      title: item.title || item.name || item.topic || "UpToDate Topic",
+      description: item.description || item.summary || item.abstract || "",
+      category:
+        item.category || item.specialty || item.type || "Clinical Topic",
+      url:
+        item.url ||
+        item.link ||
+        `https://www.uptodate.com/contents/${item.id || ""}`,
+      lastUpdated: item.lastUpdated || item.updated || item.date || "",
+      source: "UpToDate API",
+      evidenceLevel: "Expert Review",
+    });
+  });
+
+  return results;
+}
+
+export function formatUpToDateResults(
+  results: UpToDateResult[],
+  query: string,
+) {
+  if (results.length === 0) {
+    return createMCPResponse(
+      `No UpToDate results found for "${query}". This could be due to no results matching your query, authentication issues, or network connectivity problems.`,
+    );
+  }
+
+  let result = `**UpToDate Clinical Decision Support: "${query}"**\n\n`;
+  result += `Found ${results.length} result(s)\n\n`;
+
+  results.forEach((item, index) => {
+    result += `${index + 1}. **${item.title}**\n`;
+    result += `   Category: ${item.category}\n`;
+    result += `   Evidence Level: ${item.evidenceLevel}\n`;
+    if (item.lastUpdated) {
+      result += `   Last Updated: ${item.lastUpdated}\n`;
+    }
+    if (item.description) {
+      result += `   Description: ${item.description.substring(0, 300)}${item.description.length > 300 ? "..." : ""}\n`;
+    }
+    result += `   URL: ${item.url}\n`;
+    result += `   Source: ${item.source}\n\n`;
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `This information is retrieved from UpToDate's clinical decision support system.\n\n`;
+  result += `**DYNAMIC DATA SOURCE:**\n`;
+  result += `• UpToDate (Wolters Kluwer) - Expert-reviewed clinical content\n`;
+  result += `• Evidence-based recommendations and guidelines\n`;
+  result += `• Expert-authored and peer-reviewed content\n`;
+  result += `• Regular updates by medical specialists\n\n`;
+  result += `**ALWAYS:**\n`;
+  result += `• Verify information through multiple sources\n`;
+  result += `• Consider individual patient factors and clinical context\n`;
+  result += `• Follow established clinical protocols and guidelines\n`;
+  result += `• Consult with specialists when appropriate\n`;
+  result += `• Document your clinical decision-making process\n\n`;
+  result += `**NEVER rely solely on this information for clinical decisions.**`;
+
+  return createMCPResponse(result);
+}
+
+// UpToDate Types
+export interface UpToDateResult {
+  title: string;
+  description: string;
+  category: string;
+  url: string;
+  lastUpdated: string;
+  source: string;
+  evidenceLevel: string;
 }

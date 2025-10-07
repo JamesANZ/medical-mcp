@@ -164,6 +164,46 @@ Search for drug information using RxNorm (standardized drug nomenclature).
 
 - Standardized drug information with RxCUI codes, synonyms, and term types
 
+### 🏥 Clinical Decision Support Tools
+
+#### `search-uptodate`
+
+Search UpToDate clinical decision support system for evidence-based medical information and expert recommendations.
+
+**Input:**
+
+- `query` (string): Medical topic, condition, or clinical question to search in UpToDate
+- `api_key` (string, optional): UpToDate API key for enterprise access
+
+**Output:**
+
+- Evidence-based clinical recommendations and expert-reviewed content
+- Treatment guidelines, diagnostic criteria, and management strategies
+- Expert-authored and peer-reviewed medical information
+
+**Important:** UpToDate requires an enterprise API key for access. If no API key is provided, the tool will return empty results. To use this tool effectively, you need to:
+
+1. **Obtain an UpToDate API Key**: Contact UpToDate/Wolters Kluwer for enterprise access
+2. **Add API Key to Claude Configuration**: Include the API key in your Claude Desktop configuration
+
+**Claude Configuration Example:**
+
+```json
+{
+  "mcpServers": {
+    "medical-mcp": {
+      "command": "/path/to/node",
+      "args": ["/path/to/medical-mcp/build/index.js"],
+      "env": {
+        "UPTODATE_API_KEY": "your-uptodate-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Note:** UpToDate web scraping has been disabled due to authentication requirements. Only API access is supported.
+
 ## Installation
 
 1. Clone this repository:
