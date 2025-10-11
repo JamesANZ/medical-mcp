@@ -2,6 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
+  parseServerConfig,
+  displaySafetyNotices,
+  displayServerInfo,
+} from "./config.js";
+import { createHttpServer } from "./http-server.js";
+import {
   getDrugByNDC,
   getHealthIndicators,
   searchDrugs,
@@ -36,31 +42,8 @@ const server = new McpServer({
   },
 });
 
-// Add global safety warning
-console.error("🚨 MEDICAL MCP SERVER - SAFETY NOTICE:");
-console.error(
-  "This server provides medical information for educational purposes only.",
-);
-console.error(
-  "NEVER use this information as the sole basis for clinical decisions.",
-);
-console.error(
-  "Always consult qualified healthcare professionals for patient care.",
-);
-console.error("");
-console.error("📊 DYNAMIC DATA SOURCE NOTICE:");
-console.error(
-  "This system queries live medical databases (FDA, WHO, PubMed, RxNorm)",
-);
-console.error(
-  "NO hardcoded medical data is used - all information is retrieved dynamically",
-);
-console.error(
-  "Data freshness depends on source database updates and API availability",
-);
-console.error(
-  "Network connectivity required for all medical information retrieval",
-);
+// Display global safety notices
+displaySafetyNotices();
 
 // MCP Tools
 server.tool(
@@ -295,106 +278,18 @@ server.tool(
 );
 
 async function main() {
-  // Check for command line arguments to determine transport type
+  // Parse configuration from command line arguments and environment variables
   const args = process.argv.slice(2);
-  const useHttp = args.includes("--http");
-  const port = parseInt(
-    args.find((arg) => arg.startsWith("--port="))?.split("=")[1] || "3000",
-  );
+  const config = parseServerConfig(args);
 
-  if (useHttp) {
-    // HTTP Server with localhost-only binding
-    console.error("🚨 MEDICAL MCP SERVER - LOCALHOST ONLY MODE");
-    console.error("Binding to localhost only for security");
-    console.error(`Starting HTTP server on http://localhost:${port}`);
+  // Display server startup information
+  displayServerInfo(config);
 
-    // Create HTTP server with localhost-only binding
-    const http = await import("http");
-    const httpServer = http.createServer((req, res) => {
-      // Security: Only allow localhost connections
-      const clientIP = req.connection.remoteAddress || req.socket.remoteAddress;
-      const isLocalhost =
-        clientIP === "127.0.0.1" ||
-        clientIP === "::1" ||
-        clientIP === "::ffff:127.0.0.1" ||
-        req.headers.host?.startsWith("localhost:") ||
-        req.headers.host?.startsWith("127.0.0.1:");
-
-      if (!isLocalhost) {
-        console.error(
-          `🚨 BLOCKED: Non-localhost connection attempt from ${clientIP}`,
-        );
-        res.writeHead(403, { "Content-Type": "text/plain" });
-        res.end("Access denied: This server is restricted to localhost only");
-        return;
-      }
-
-      // Set CORS headers for localhost only
-      res.setHeader("Access-Control-Allow-Origin", "http://localhost:*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-      if (req.method === "OPTIONS") {
-        res.writeHead(200);
-        res.end();
-        return;
-      }
-
-      // Basic MCP server info endpoint
-      if (req.url === "/info") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            name: "medical-mcp",
-            version: "1.0.0",
-            mode: "localhost-only",
-            security: "bound to 127.0.0.1 only",
-            tools: [
-              "search-drugs",
-              "get-drug-by-ndc",
-              "search-pubmed-articles",
-              "search-google-scholar",
-              "check-drug-interactions",
-              "generate-differential-diagnosis",
-              "get-diagnostic-criteria",
-              "search-medical-databases",
-              "search-medical-journals",
-            ],
-          }),
-        );
-        return;
-      }
-
-      // Default response
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end(
-        "Medical MCP Server - Localhost Only Mode\nUse stdio transport for full MCP functionality.",
-      );
-    });
-
-    // Bind to localhost only (127.0.0.1)
-    httpServer.listen(port, "127.0.0.1", () => {
-      console.error(
-        `✅ Medical MCP Server running on http://localhost:${port}`,
-      );
-      console.error("🔒 Security: Bound to localhost only (127.0.0.1)");
-      console.error("📝 Info endpoint: http://localhost:" + port + "/info");
-      console.error("⚠️  Note: Use stdio transport for full MCP functionality");
-    });
-
-    // Graceful shutdown
-    process.on("SIGINT", () => {
-      console.error("\n🛑 Shutting down Medical MCP Server...");
-      httpServer.close(() => {
-        console.error("✅ Server stopped");
-        process.exit(0);
-      });
-    });
+  if (config.mode === "http") {
+    // Create HTTP server using the new module
+    await createHttpServer({ config });
   } else {
     // Default stdio transport (already localhost-only)
-    console.error("🚨 MEDICAL MCP SERVER - STDIO MODE");
-    console.error("Using stdio transport (inherently localhost-only)");
-
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("✅ Medical MCP Server running on stdio");

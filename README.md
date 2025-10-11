@@ -197,6 +197,69 @@ npm start
 
 The server runs on stdio and can be connected to any MCP-compatible client.
 
+### Docker Support
+
+For Docker environments (like Open Web UI), you can configure the server to bind to different IP addresses:
+
+#### Command Line Options
+
+```bash
+# Bind to localhost only (default, secure)
+npm run start:http
+
+# Bind to all interfaces (for Docker)
+npm run start:http:docker
+
+# Custom IP and port
+node build/index.js --http --bind=0.0.0.0 --port=3000 --allow-external
+
+# Specific IP address
+node build/index.js --http --bind=192.168.1.100 --port=3000 --allow-external
+```
+
+#### Environment Variables
+
+```bash
+# Set bind IP
+export MCP_BIND_IP=0.0.0.0
+
+# Allow external access (required for Docker)
+export MCP_ALLOW_EXTERNAL=true
+
+# Run the server
+npm run start:http
+```
+
+#### Docker Configuration Example
+
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+COPY . .
+RUN npm install && npm run build
+
+# Expose port
+EXPOSE 3000
+
+# Set environment variables for Docker
+ENV MCP_BIND_IP=0.0.0.0
+ENV MCP_ALLOW_EXTERNAL=true
+
+# Start server
+CMD ["npm", "run", "start:http"]
+```
+
+#### Open Web UI Integration
+
+When using with Open Web UI in Docker, configure the MCP server to bind to `0.0.0.0` and allow external access:
+
+```bash
+node build/index.js --http --bind=0.0.0.0 --allow-external --port=3000
+```
+
+Then configure Open Web UI to connect to `http://medical-mcp-container:3000/info`
+
 ### Example Queries
 
 Here are some example queries you can make with this MCP server:

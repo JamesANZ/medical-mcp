@@ -10,6 +10,7 @@
     "start": "node build/index.js",
     "start:http": "node build/index.js --http",
     "start:http:port": "node build/index.js --http --port=3000",
+    "start:http:docker": "node build/index.js --http --bind=0.0.0.0 --allow-external",
     "dev": "npm run build && npm run start",
     "dev:http": "npm run build && npm run start:http"
   },
