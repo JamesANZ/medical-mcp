@@ -2,6 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
+  parseServerConfig,
+  displaySafetyNotices,
+  displayServerInfo,
+} from "./config.js";
+import { createHttpServer } from "./http-server.js";
+import {
   getDrugByNDC,
   getHealthIndicators,
   searchDrugs,
@@ -26,6 +32,32 @@ import {
   formatRxNormDrugs,
   formatClinicalGuidelines,
 } from "./utils.js";
+import {
+  getLatestPBSSchedule,
+  listPBSSchedules,
+  getPBSItem,
+  searchPBSItems,
+  searchPBSGeneral,
+  getPBSFeesForItem,
+  listPBSDispensingRules,
+  getPBSOrganisationForItem,
+  getPBSCopayments,
+  getPBSRestrictionsForItem,
+  getPBSScheduleEffectiveDate,
+  listPBSPrograms,
+  getPBSItemRestrictions,
+  formatLatestPBSSchedule,
+  formatPBSSchedules,
+  formatPBSItem,
+  formatPBSSearchResults,
+  formatPBSFees,
+  formatPBSCopayments,
+  formatPBSRestrictions,
+  formatPBSPrograms,
+  formatPBSOrganisation,
+  formatPBSDispensingRules,
+  formatPBSScheduleEffectiveDate,
+} from "./pbs-utils.js";
 
 const server = new McpServer({
   name: "medical-mcp",
@@ -36,31 +68,8 @@ const server = new McpServer({
   },
 });
 
-// Add global safety warning
-console.error("🚨 MEDICAL MCP SERVER - SAFETY NOTICE:");
-console.error(
-  "This server provides medical information for educational purposes only.",
-);
-console.error(
-  "NEVER use this information as the sole basis for clinical decisions.",
-);
-console.error(
-  "Always consult qualified healthcare professionals for patient care.",
-);
-console.error("");
-console.error("📊 DYNAMIC DATA SOURCE NOTICE:");
-console.error(
-  "This system queries live medical databases (FDA, WHO, PubMed, RxNorm)",
-);
-console.error(
-  "NO hardcoded medical data is used - all information is retrieved dynamically",
-);
-console.error(
-  "Data freshness depends on source database updates and API availability",
-);
-console.error(
-  "Network connectivity required for all medical information retrieval",
-);
+// Display global safety notices
+displaySafetyNotices();
 
 // MCP Tools
 server.tool(
@@ -294,111 +303,259 @@ server.tool(
   },
 );
 
+// PBS (Pharmaceutical Benefits Scheme) Tools
+
+server.tool(
+  "pbs-get-latest-schedule",
+  "Get current PBS schedule code",
+  {},
+  async () => {
+    try {
+      const schedule = await getLatestPBSSchedule();
+      return formatLatestPBSSchedule(schedule);
+    } catch (error: any) {
+      return createErrorResponse("fetching latest PBS schedule", error);
+    }
+  },
+);
+
+server.tool("pbs-list-schedules", "List PBS schedules", {}, async () => {
+  try {
+    const schedules = await listPBSSchedules();
+    return formatPBSSchedules(schedules);
+  } catch (error: any) {
+    return createErrorResponse("listing PBS schedules", error);
+  }
+});
+
+server.tool(
+  "pbs-get-item",
+  "Get PBS item by code",
+  {
+    itemCode: z
+      .string()
+      .regex(
+        /^[0-9]{4,6}[A-Z]?$/,
+        "Invalid PBS item code format (should be 4-6 digits optionally followed by a letter)",
+      )
+      .describe("PBS item code to retrieve (e.g., '1234' or '12345A')"),
+  },
+  async ({ itemCode }) => {
+    try {
+      const item = await getPBSItem(itemCode);
+      return formatPBSItem(item, itemCode);
+    } catch (error: any) {
+      return createErrorResponse("fetching PBS item", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-search-item-overview",
+  "Search PBS items with filters",
+  {
+    itemName: z.string().optional().describe("Item name to search for"),
+    manufacturer: z.string().optional().describe("Manufacturer to filter by"),
+    scheduleCode: z.string().optional().describe("Schedule code to filter by"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .default(20)
+      .describe("Number of results to return (max 100)"),
+  },
+  async ({ itemName, manufacturer, scheduleCode, limit }) => {
+    try {
+      const items = await searchPBSItems(
+        itemName,
+        manufacturer,
+        scheduleCode,
+        limit,
+      );
+      const query = [itemName, manufacturer, scheduleCode]
+        .filter(Boolean)
+        .join(" ");
+      return formatPBSSearchResults(items, query || "all items");
+    } catch (error: any) {
+      return createErrorResponse("searching PBS items", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-search",
+  "General PBS API search",
+  {
+    query: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(
+        /^[a-zA-Z0-9\s\-'&().,]+$/,
+        "Search query contains invalid characters",
+      )
+      .describe("Search query (drug names, manufacturers, etc.)"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .default(20)
+      .describe("Number of results to return (max 100)"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const items = await searchPBSGeneral(query, limit);
+      return formatPBSSearchResults(items, query);
+    } catch (error: any) {
+      return createErrorResponse("performing PBS search", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-get-fees-for-item",
+  "Get PBS fees for specific items",
+  {
+    itemCode: z.string().describe("PBS item code to get fees for"),
+  },
+  async ({ itemCode }) => {
+    try {
+      const fees = await getPBSFeesForItem(itemCode);
+      return formatPBSFees(fees, itemCode);
+    } catch (error: any) {
+      return createErrorResponse("fetching PBS fees", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-list-dispensing-rules",
+  "List PBS dispensing rules",
+  {},
+  async () => {
+    try {
+      const rules = await listPBSDispensingRules();
+      return formatPBSDispensingRules(rules);
+    } catch (error: any) {
+      return createErrorResponse("listing PBS dispensing rules", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-get-organisation-for-item",
+  "Get manufacturer info for item",
+  {
+    itemCode: z.string().describe("PBS item code to get manufacturer info for"),
+  },
+  async ({ itemCode }) => {
+    try {
+      const organisation = await getPBSOrganisationForItem(itemCode);
+      return formatPBSOrganisation(organisation, itemCode);
+    } catch (error: any) {
+      return createErrorResponse("fetching PBS organisation", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-get-copayments",
+  "Get PBS copayment information",
+  {},
+  async () => {
+    try {
+      const copayments = await getPBSCopayments();
+      return formatPBSCopayments(copayments);
+    } catch (error: any) {
+      return createErrorResponse("fetching PBS copayments", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-get-restrictions-for-item",
+  "Get PBS restriction details for item",
+  {
+    itemCode: z.string().describe("PBS item code to get restrictions for"),
+  },
+  async ({ itemCode }) => {
+    try {
+      const restrictions = await getPBSRestrictionsForItem(itemCode);
+      return formatPBSRestrictions(restrictions, itemCode);
+    } catch (error: any) {
+      return createErrorResponse("fetching PBS restrictions", error);
+    }
+  },
+);
+
+server.tool(
+  "pbs-get-schedule-effective-date",
+  "Get schedule effective dates",
+  {
+    scheduleCode: z
+      .string()
+      .describe("PBS schedule code to get effective date for"),
+  },
+  async ({ scheduleCode }) => {
+    try {
+      const effectiveDate = await getPBSScheduleEffectiveDate(scheduleCode);
+      return formatPBSScheduleEffectiveDate(effectiveDate, scheduleCode);
+    } catch (error: any) {
+      return createErrorResponse("fetching PBS schedule effective date", error);
+    }
+  },
+);
+
+server.tool("pbs-list-programs", "List PBS programs", {}, async () => {
+  try {
+    const programs = await listPBSPrograms();
+    return formatPBSPrograms(programs);
+  } catch (error: any) {
+    return createErrorResponse("listing PBS programs", error);
+  }
+});
+
+server.tool(
+  "pbs-get-item-restrictions",
+  "Get detailed item restrictions",
+  {
+    itemCode: z
+      .string()
+      .describe("PBS item code to get detailed restrictions for"),
+  },
+  async ({ itemCode }) => {
+    try {
+      const restrictions = await getPBSItemRestrictions(itemCode);
+      return formatPBSRestrictions(restrictions, itemCode);
+    } catch (error: any) {
+      return createErrorResponse(
+        "fetching detailed PBS item restrictions",
+        error,
+      );
+    }
+  },
+);
+
 async function main() {
-  // Check for command line arguments to determine transport type
+  // Parse configuration from command line arguments and environment variables
   const args = process.argv.slice(2);
-  const useHttp = args.includes("--http");
-  const port = parseInt(
-    args.find((arg) => arg.startsWith("--port="))?.split("=")[1] || "3000",
-  );
+  const config = parseServerConfig(args);
 
-  if (useHttp) {
-    // HTTP Server with localhost-only binding
-    console.error("🚨 MEDICAL MCP SERVER - LOCALHOST ONLY MODE");
-    console.error("Binding to localhost only for security");
-    console.error(`Starting HTTP server on http://localhost:${port}`);
+  // Display server startup information
+  displayServerInfo(config);
 
-    // Create HTTP server with localhost-only binding
-    const http = await import("http");
-    const httpServer = http.createServer((req, res) => {
-      // Security: Only allow localhost connections
-      const clientIP = req.connection.remoteAddress || req.socket.remoteAddress;
-      const isLocalhost =
-        clientIP === "127.0.0.1" ||
-        clientIP === "::1" ||
-        clientIP === "::ffff:127.0.0.1" ||
-        req.headers.host?.startsWith("localhost:") ||
-        req.headers.host?.startsWith("127.0.0.1:");
-
-      if (!isLocalhost) {
-        console.error(
-          `🚨 BLOCKED: Non-localhost connection attempt from ${clientIP}`,
-        );
-        res.writeHead(403, { "Content-Type": "text/plain" });
-        res.end("Access denied: This server is restricted to localhost only");
-        return;
-      }
-
-      // Set CORS headers for localhost only
-      res.setHeader("Access-Control-Allow-Origin", "http://localhost:*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-      if (req.method === "OPTIONS") {
-        res.writeHead(200);
-        res.end();
-        return;
-      }
-
-      // Basic MCP server info endpoint
-      if (req.url === "/info") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            name: "medical-mcp",
-            version: "1.0.0",
-            mode: "localhost-only",
-            security: "bound to 127.0.0.1 only",
-            tools: [
-              "search-drugs",
-              "get-drug-by-ndc",
-              "search-pubmed-articles",
-              "search-google-scholar",
-              "check-drug-interactions",
-              "generate-differential-diagnosis",
-              "get-diagnostic-criteria",
-              "search-medical-databases",
-              "search-medical-journals",
-            ],
-          }),
-        );
-        return;
-      }
-
-      // Default response
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end(
-        "Medical MCP Server - Localhost Only Mode\nUse stdio transport for full MCP functionality.",
-      );
-    });
-
-    // Bind to localhost only (127.0.0.1)
-    httpServer.listen(port, "127.0.0.1", () => {
-      console.error(
-        `✅ Medical MCP Server running on http://localhost:${port}`,
-      );
-      console.error("🔒 Security: Bound to localhost only (127.0.0.1)");
-      console.error("📝 Info endpoint: http://localhost:" + port + "/info");
-      console.error("⚠️  Note: Use stdio transport for full MCP functionality");
-    });
-
-    // Graceful shutdown
-    process.on("SIGINT", () => {
-      console.error("\n🛑 Shutting down Medical MCP Server...");
-      httpServer.close(() => {
-        console.error("✅ Server stopped");
-        process.exit(0);
-      });
-    });
+  if (config.mode === "http") {
+    // Create HTTP server using the new module
+    await createHttpServer({ config });
   } else {
     // Default stdio transport (already localhost-only)
-    console.error("🚨 MEDICAL MCP SERVER - STDIO MODE");
-    console.error("Using stdio transport (inherently localhost-only)");
-
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("✅ Medical MCP Server running on stdio");
-    console.error("🔒 Security: Stdio transport is inherently localhost-only");
   }
 }
 

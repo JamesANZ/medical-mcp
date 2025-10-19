@@ -2,7 +2,7 @@
 
 [![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/JamesANZ/medical-mcp)](https://archestra.ai/mcp-catalog/jamesanz__medical-mcp)
 
-A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, and RxNorm.
+A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, RxNorm, and Australia's PBS (Pharmaceutical Benefits Scheme).
 
 ## 🔒 Security Features
 
@@ -163,6 +163,102 @@ Search for drug information using RxNorm (standardized drug nomenclature).
 **Output:**
 
 - Standardized drug information with RxCUI codes, synonyms, and term types
+
+### 🇦🇺 Australian PBS (Pharmaceutical Benefits Scheme) Tools
+
+The server now includes comprehensive support for Australia's PBS system, providing access to subsidized medicine information, pricing, restrictions, and more.
+
+**⚠️ Authentication Required**: PBS API requires a subscription key. Set `PBS_API_KEY` or `PBS_SUBSCRIPTION_KEY` environment variable after registering at [PBS API Portal](https://data.pbs.gov.au/api/pbs-api.html).
+
+#### `pbs-get-latest-schedule`
+
+Get current PBS schedule code.
+
+#### `pbs-list-schedules`
+
+List PBS schedules.
+
+#### `pbs-get-item`
+
+Get PBS item by code.
+
+**Input:**
+
+- `itemCode` (string): PBS item code to retrieve
+
+#### `pbs-search-item-overview`
+
+Search PBS items with filters.
+
+**Input:**
+
+- `itemName` (optional, string): Item name to search for
+- `manufacturer` (optional, string): Manufacturer to filter by
+- `scheduleCode` (optional, string): Schedule code to filter by
+- `limit` (optional, number): Number of results to return (1-100, default: 20)
+
+#### `pbs-search`
+
+General PBS API search.
+
+**Input:**
+
+- `query` (string): Search query
+- `limit` (optional, number): Number of results to return (1-100, default: 20)
+
+#### `pbs-get-fees-for-item`
+
+Get PBS fees for specific items.
+
+**Input:**
+
+- `itemCode` (string): PBS item code to get fees for
+
+#### `pbs-list-dispensing-rules`
+
+List PBS dispensing rules.
+
+#### `pbs-get-organisation-for-item`
+
+Get manufacturer info for item.
+
+**Input:**
+
+- `itemCode` (string): PBS item code to get manufacturer info for
+
+#### `pbs-get-copayments`
+
+Get PBS copayment information.
+
+#### `pbs-get-restrictions-for-item`
+
+Get PBS restriction details for item.
+
+**Input:**
+
+- `itemCode` (string): PBS item code to get restrictions for
+
+#### `pbs-get-schedule-effective-date`
+
+Get schedule effective dates.
+
+**Input:**
+
+- `scheduleCode` (string): PBS schedule code to get effective date for
+
+#### `pbs-list-programs`
+
+List PBS programs.
+
+#### `pbs-get-item-restrictions`
+
+Get detailed item restrictions.
+
+**Input:**
+
+- `itemCode` (string): PBS item code to get detailed restrictions for
+
+**Note:** PBS data is updated monthly on the first day of each month. All PBS tools query live data from the official Australian Government PBS API.
 
 ## Installation
 

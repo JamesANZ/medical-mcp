@@ -85,3 +85,84 @@ export type DrugInteraction = {
   management: string;
   evidence_level: string;
 };
+
+// PBS (Pharmaceutical Benefits Scheme) Types
+export type PBSSchedule = {
+  schedule_code: number;
+  effective_date: string;
+  effective_month: string;
+  effective_year: number;
+  publication_status: string;
+  revision_number: number;
+  start_tsp?: string;
+};
+
+export type PBSItem = {
+  itemCode: string;
+  itemName: string;
+  manufacturer: string;
+  strength: string;
+  packSize: string;
+  unitOfMeasure: string;
+  atcCode?: string;
+  scheduleCode: string;
+  effectiveDate: string;
+  maxQuantity?: number;
+  maxRepeats?: number;
+  restrictionCode?: string;
+};
+
+export type PBSRestriction = {
+  restrictionCode: string;
+  restrictionType: string;
+  description: string;
+  clinicalCriteria?: string;
+  prescribingCriteria?: string;
+  effectiveDate: string;
+  itemCode?: string;
+};
+
+export type PBSCopayment = {
+  concessionType: string;
+  copaymentAmount: number;
+  effectiveDate: string;
+  description?: string;
+};
+
+export type PBSFee = {
+  feeType: string;
+  amount: number;
+  effectiveDate: string;
+  description?: string;
+};
+
+export type PBSProgram = {
+  programCode: string;
+  programName: string;
+  description?: string;
+  effectiveDate: string;
+  status: string;
+};
+
+export type PBSOrganisation = {
+  organisationCode: string;
+  organisationName: string;
+  organisationType: string;
+  address?: string;
+  contactInfo?: string;
+};
+
+export type PBSSearchResult = {
+  pbs_code: string;
+  drug_name: string;
+  brand_name: string;
+  li_drug_name: string;
+  li_form: string;
+  pack_size: number;
+  manufacturer: any;
+  schedule?: PBSSchedule;
+  li_item_id?: string;
+  program_code?: string;
+  benefit_type_code?: string;
+  [key: string]: any; // Allow for additional fields from the API
+};

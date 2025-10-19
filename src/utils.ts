@@ -6,6 +6,14 @@ import {
   WHOIndicator,
   ClinicalGuideline,
   DrugInteraction,
+  PBSSchedule,
+  PBSItem,
+  PBSRestriction,
+  PBSCopayment,
+  PBSFee,
+  PBSProgram,
+  PBSOrganisation,
+  PBSSearchResult,
 } from "./types.js";
 import superagent from "superagent";
 import puppeteer from "puppeteer";
@@ -16,6 +24,7 @@ import {
   RXNAV_API_BASE,
   USER_AGENT,
   WHO_API_BASE,
+  PBS_API_BASE,
 } from "./constants.js";
 
 export async function searchDrugs(
