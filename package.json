@@ -26,8 +26,16 @@
     "pubmed",
     "mcp"
   ],
-  "author": "",
+  "author": "jamesanz",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesanz/medical-mcp.git"
+  },
+  "homepage": "https://github.com/jamesanz/medical-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/jamesanz/medical-mcp/issues"
+  },
   "description": "A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, and RxNorm.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.0",
