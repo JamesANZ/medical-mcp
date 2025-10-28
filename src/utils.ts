@@ -18,6 +18,34 @@ import {
   WHO_API_BASE,
 } from "./constants.js";
 
+export function logSafetyWarnings() {
+  // Add global safety warning
+  console.error("🚨 MEDICAL MCP SERVER - SAFETY NOTICE:");
+  console.error(
+    "This server provides medical information for educational purposes only.",
+  );
+  console.error(
+    "NEVER use this information as the sole basis for clinical decisions.",
+  );
+  console.error(
+    "Always consult qualified healthcare professionals for patient care.",
+  );
+  console.error("");
+  console.error("📊 DYNAMIC DATA SOURCE NOTICE:");
+  console.error(
+    "This system queries live medical databases (FDA, WHO, PubMed, RxNorm)",
+  );
+  console.error(
+    "NO hardcoded medical data is used - all information is retrieved dynamically",
+  );
+  console.error(
+    "Data freshness depends on source database updates and API availability",
+  );
+  console.error(
+    "Network connectivity required for all medical information retrieval",
+  );
+}
+
 export async function searchDrugs(
   query: string,
   limit: number = 10,
@@ -266,8 +294,44 @@ export async function searchRxNormDrugs(query: string): Promise<RxNormDrug[]> {
       .query({ name: query })
       .set("User-Agent", USER_AGENT);
 
-    return res.body.drugGroup?.conceptGroup?.[0]?.concept || [];
+    const drugGroup = res.body.drugGroup;
+    if (!drugGroup || !drugGroup.conceptGroup) {
+      return [];
+    }
+
+    // Find concept groups that have conceptProperties
+    const results: RxNormDrug[] = [];
+    for (const conceptGroup of drugGroup.conceptGroup) {
+      if (
+        conceptGroup.conceptProperties &&
+        Array.isArray(conceptGroup.conceptProperties)
+      ) {
+        for (const concept of conceptGroup.conceptProperties) {
+          // Transform the API response to match our RxNormDrug type
+          results.push({
+            rxcui: concept.rxcui || "",
+            name: concept.name || "",
+            synonym: concept.synonym
+              ? Array.isArray(concept.synonym)
+                ? concept.synonym
+                : [concept.synonym]
+              : [],
+            tty: concept.tty || "",
+            language: concept.language || "",
+            suppress: concept.suppress || "",
+            umlscui: concept.umlscui
+              ? Array.isArray(concept.umlscui)
+                ? concept.umlscui
+                : [concept.umlscui]
+              : [],
+          });
+        }
+      }
+    }
+
+    return results;
   } catch (error) {
+    console.error("Error searching RxNorm drugs:", error);
     return [];
   }
 }

@@ -4,18 +4,6 @@
 
 A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, and RxNorm.
 
-## 🔒 Security Features
-
-**Localhost-Only Binding**: This server is configured for maximum security with localhost-only access:
-
-- **Stdio Mode (Default)**: Inherently localhost-only process communication
-- **HTTP Mode**: Binds to `127.0.0.1` only, blocks all external connections
-- **IP Filtering**: Validates all incoming connections against localhost addresses
-- **CORS Restrictions**: Only allows localhost origins
-- **Security Logging**: All blocked connection attempts are logged
-
-See [SECURITY.md](SECURITY.md) for detailed security configuration.
-
 ## Features
 
 This MCP server offers five specialized tools for querying medical information from reliable sources:
