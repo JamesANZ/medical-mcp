@@ -3,17 +3,25 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
+import { fileURLToPath } from "url";
 
 const CONFIG_FILE_NAME = "claude_desktop_config.json";
 const CONFIG_DIR = join(homedir(), "Library", "Application Support", "Claude");
 const CONFIG_PATH = join(CONFIG_DIR, CONFIG_FILE_NAME);
 
+// Get the package directory path (this script is in scripts/, so go up one level)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageDir = dirname(__dirname); // Go up from scripts/ to package root
+
+// For local installations, use node with the build path
 const MCP_SERVER_CONFIG = {
   mcpServers: {
     "medical-mcp": {
-      command: "medical-mcp",
-      args: [],
-      env: {},
+      command: "node",
+      args: [
+        join(packageDir, "build", "index.js")
+      ],
     },
   },
 };
@@ -110,7 +118,8 @@ function createClaudeConfig() {
     console.log("2. Go to Settings > Developer");
     console.log("3. Add MCP server:");
     console.log("   Name: medical-mcp");
-    console.log("   Command: medical-mcp");
+    console.log("   Command: node");
+    console.log(`   Args: [\"${join(packageDir, "build", "index.js")}\"]`);
     console.log("4. Restart Claude Desktop");
     process.exit(1);
   }
