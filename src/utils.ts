@@ -13,6 +13,7 @@ import {
   FDA_API_BASE,
   GOOGLE_SCHOLAR_API_BASE,
   PUBMED_API_BASE,
+  PMC_API_BASE,
   RXNAV_API_BASE,
   USER_AGENT,
   WHO_API_BASE,
@@ -498,10 +499,22 @@ export function formatPubMedArticles(articles: any[], query: string) {
     result += `   Journal: ${article.journal}\n`;
     result += `   Publication Date: ${article.publication_date}\n`;
     result += `   PMID: ${article.pmid}\n`;
+    if (article.pmc_id) {
+      result += `   PMC ID: ${article.pmc_id} (Full text available)\n`;
+    }
     if (article.abstract) {
       result += `   Abstract: ${article.abstract.substring(0, 300)}${article.abstract.length > 300 ? "..." : ""}\n`;
     }
-    result += `   URL: https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/\n\n`;
+    if (article.full_text) {
+      result += `   **Full Text Available**\n`;
+      result += `   Full Text (first 1000 chars): ${article.full_text.substring(0, 1000)}${article.full_text.length > 1000 ? "..." : ""}\n`;
+      result += `   [Full text truncated for display. Use get-article-details for complete text.]\n`;
+    }
+    result += `   URL: https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/\n`;
+    if (article.pmc_id) {
+      result += `   Full Text: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${article.pmc_id}/\n`;
+    }
+    result += "\n";
   });
 
   return createMCPResponse(result);
@@ -637,7 +650,23 @@ export function formatArticleDetails(article: any, pmid: string) {
     result += `**DOI:** ${article.doi}\n`;
   }
 
-  result += `\n**Abstract:**\n${article.abstract}\n`;
+  if (article.pmc_id) {
+    result += `**PMC ID:** ${article.pmc_id}\n`;
+    result += `**Full Text Available:** Yes\n`;
+    result += `**Full Text URL:** https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${article.pmc_id}/\n\n`;
+  }
+
+  result += `\n**Abstract:**\n${article.abstract}\n\n`;
+
+  if (article.full_text) {
+    result += `**Full Text:**\n${article.full_text}\n\n`;
+  } else if (article.pmc_id) {
+    result += `**Note:** Full text is available but could not be automatically retrieved. `;
+    result += `Please visit the PMC URL above to access the complete article.\n\n`;
+  } else {
+    result += `**Note:** Full text is not available in PubMed Central. `;
+    result += `You may need institutional access or subscription to view the complete article.\n\n`;
+  }
 
   return createMCPResponse(result);
 }
@@ -1218,6 +1247,130 @@ async function searchJournal(
   }
 }
 
+async function fetchFullTextFromPMC(pmc_id: string): Promise<string | null> {
+  let browser;
+  try {
+    // Try multiple methods to get full text
+
+    // Method 1: Try PMC's XML/PMC format API
+    try {
+      const pmcXmlUrl = `${PMC_API_BASE}/oai/oai.cgi?verb=GetRecord&identifier=oai:pubmedcentral.nih.gov:${pmc_id}&metadataPrefix=pmc`;
+      const xmlResponse = await superagent
+        .get(pmcXmlUrl)
+        .set("User-Agent", USER_AGENT)
+        .timeout(30000);
+
+      const xmlText = xmlResponse.text;
+
+      // Extract text from body sections
+      const bodyMatches = xmlText.match(/<body[^>]*>([\s\S]*?)<\/body>/gi);
+      if (bodyMatches && bodyMatches.length > 0) {
+        let fullText = "";
+        for (const body of bodyMatches) {
+          const text = body
+            .replace(/<[^>]*>/g, " ") // Remove tags
+            .replace(/\s+/g, " ") // Normalize whitespace
+            .trim();
+          if (text.length > 100) {
+            // Only include substantial sections
+            fullText += text + "\n\n";
+          }
+        }
+        if (fullText.trim().length > 500) {
+          return fullText.trim();
+        }
+      }
+    } catch (xmlError) {
+      // Continue to next method
+      console.log(`PMC XML method failed for ${pmc_id}, trying HTML method`);
+    }
+
+    // Method 2: Scrape HTML page using puppeteer
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setUserAgent(USER_AGENT);
+
+    const pmcHtmlUrl = `${PMC_API_BASE}/articles/PMC${pmc_id}/`;
+    await page.goto(pmcHtmlUrl, {
+      waitUntil: "networkidle2",
+      timeout: 30000,
+    });
+
+    // Extract full text from the page
+    const fullText = await page.evaluate(() => {
+      // Try to get the main content
+      const selectors = [
+        "#mc",
+        ".article-content",
+        ".main-content",
+        "article",
+        "[role='main']",
+        ".full-text",
+      ];
+
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          // Get all paragraph text
+          const paragraphs = element.querySelectorAll("p");
+          if (paragraphs.length > 0) {
+            let text = "";
+            paragraphs.forEach((p) => {
+              const pText = p.textContent?.trim();
+              if (pText && pText.length > 20) {
+                text += pText + "\n\n";
+              }
+            });
+            if (text.trim().length > 500) {
+              return text.trim();
+            }
+          }
+        }
+      }
+
+      // Fallback: get all visible text
+      const body = document.body;
+      if (body) {
+        // Remove script and style elements
+        const scripts = body.querySelectorAll(
+          "script, style, nav, footer, header",
+        );
+        scripts.forEach((el) => el.remove());
+
+        return body.innerText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 20)
+          .join("\n\n")
+          .substring(0, 50000); // Limit to 50k chars
+      }
+
+      return null;
+    });
+
+    if (fullText && fullText.trim().length > 500) {
+      return fullText.trim();
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error fetching full text from PMC ${pmc_id}:`, error);
+    return null;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
 export async function searchPubMedArticles(
   query: string,
   maxResults: number = 10,
@@ -1248,7 +1401,30 @@ export async function searchPubMedArticles(
       })
       .set("User-Agent", USER_AGENT);
 
-    return parsePubMedXML(fetchRes.text);
+    const articles = parsePubMedXML(fetchRes.text);
+
+    // Fetch full text for articles with PMC ID (limit to first 3 to avoid rate limiting)
+    const articlesWithFullText = await Promise.all(
+      articles.slice(0, 3).map(async (article) => {
+        if (article.pmc_id) {
+          try {
+            const fullText = await fetchFullTextFromPMC(article.pmc_id);
+            if (fullText) {
+              article.full_text = fullText;
+            }
+          } catch (error) {
+            console.error(
+              `Error fetching full text for PMID ${article.pmid}:`,
+              error,
+            );
+          }
+        }
+        return article;
+      }),
+    );
+
+    // Combine articles with full text and those without
+    return [...articlesWithFullText, ...articles.slice(3)];
   } catch (error) {
     console.error("Error searching PubMed:", error);
     return [];
@@ -1346,6 +1522,20 @@ export function parsePubMedXML(xmlText: string): PubMedArticle[] {
         doi = doiMatch[1].trim();
       }
 
+      // Extract PMC ID
+      let pmc_id: string | undefined;
+      const pmcIdPatterns = [
+        /<ArticleId[^>]*IdType="pmc"[^>]*>PMC(\d+)<\/ArticleId>/i,
+        /<ArticleId[^>]*IdType="pmc"[^>]*>(\d+)<\/ArticleId>/i,
+      ];
+      for (const pattern of pmcIdPatterns) {
+        const pmcMatch = articleXml.match(pattern);
+        if (pmcMatch) {
+          pmc_id = pmcMatch[1].trim();
+          break;
+        }
+      }
+
       articles.push({
         pmid,
         title,
@@ -1354,6 +1544,7 @@ export function parsePubMedXML(xmlText: string): PubMedArticle[] {
         journal,
         publication_date: publicationDate,
         doi,
+        pmc_id,
       });
     } catch (error) {
       console.error("Error parsing individual article:", error);
@@ -1377,7 +1568,21 @@ export async function getPubMedArticleByPMID(
       .set("User-Agent", USER_AGENT);
 
     const articles = parsePubMedXML(fetchRes.text);
-    return articles[0] || null;
+    const article = articles[0] || null;
+
+    if (article && article.pmc_id) {
+      // Always try to fetch full text for individual article requests
+      try {
+        const fullText = await fetchFullTextFromPMC(article.pmc_id);
+        if (fullText) {
+          article.full_text = fullText;
+        }
+      } catch (error) {
+        console.error(`Error fetching full text for PMID ${pmid}:`, error);
+      }
+    }
+
+    return article;
   } catch (error) {
     console.error("Error fetching article by PMID:", error);
     return null;

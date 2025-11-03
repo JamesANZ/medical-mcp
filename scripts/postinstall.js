@@ -19,9 +19,7 @@ const MCP_SERVER_CONFIG = {
   mcpServers: {
     "medical-mcp": {
       command: "node",
-      args: [
-        join(packageDir, "build", "index.js")
-      ],
+      args: [join(packageDir, "build", "index.js")],
     },
   },
 };

@@ -52,6 +52,8 @@ export type PubMedArticle = {
   journal: string;
   publication_date: string;
   doi?: string;
+  pmc_id?: string;
+  full_text?: string;
 };
 
 export type GoogleScholarArticle = {

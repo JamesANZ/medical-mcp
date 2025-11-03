@@ -8,7 +8,6 @@ A Model Context Protocol (MCP) server that provides comprehensive medical inform
 
 [![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/JamesANZ/medical-mcp)](https://archestra.ai/mcp-catalog/jamesanz__medical-mcp)
 
-
 ## Features
 
 This MCP server offers five specialized tools for querying medical information from reliable sources:
