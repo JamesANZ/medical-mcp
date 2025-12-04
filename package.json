@@ -12,7 +12,8 @@
     "start:http:port": "node build/index.js --http --port=3000",
     "dev": "npm run build && npm run start",
     "dev:http": "npm run build && npm run start:http",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "generate-cursor-link": "node scripts/generate-cursor-install-link.js"
   },
   "files": [
     "build",

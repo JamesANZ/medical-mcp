@@ -158,6 +158,18 @@ Search for drug information using RxNorm (standardized drug nomenclature).
 
 ## Installation
 
+### Installing in Cursor
+
+You can install this MCP server directly in Cursor using the one-click install link:
+
+**🔗 [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=medical-mcp&config=eyJtZWRpY2FsLW1jcCI6eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIm1lZGljYWwtbWNwIl19fQ==)**
+
+This will automatically configure the MCP server using `npx`. No API keys are required.
+
+**Generate a new install link:** Run `npm run generate-cursor-link` to generate a fresh install link with the latest configuration.
+
+### Install from Source
+
 1. Clone this repository:
 
 ```bash
