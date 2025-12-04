@@ -166,8 +166,6 @@ You can install this MCP server directly in Cursor using the one-click install l
 
 This will automatically configure the MCP server using `npx`. No API keys are required.
 
-**Generate a new install link:** Run `npm run generate-cursor-link` to generate a fresh install link with the latest configuration.
-
 ### Install from Source
 
 1. Clone this repository:
