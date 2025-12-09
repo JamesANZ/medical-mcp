@@ -53,19 +53,89 @@ export function logSafetyWarnings() {
   );
 }
 
+// Helper function to validate if a query looks like a drug name
+function isValidDrugQuery(query: string): boolean {
+  const trimmed = query.trim();
+  // Reject queries that are just common words
+  const commonWords = [
+    "medication",
+    "medicine",
+    "drug",
+    "pill",
+    "tablet",
+    "capsule",
+    "injection",
+    "dose",
+    "dosage",
+  ];
+  
+  const lowerQuery = trimmed.toLowerCase();
+  // If query is only common words or very generic, likely not a real drug name
+  if (commonWords.some((word) => lowerQuery === word)) {
+    return false;
+  }
+  
+  // Very short queries (1-2 chars) are likely not valid drug names
+  if (trimmed.length < 3) {
+    return false;
+  }
+  
+  // Queries with fake-looking patterns
+  if (/^[a-z]+-\d+$/.test(lowerQuery) || /\d{3,}/.test(trimmed)) {
+    // Allow numeric suffixes but be cautious
+    return trimmed.length >= 5;
+  }
+  
+  return true;
+}
+
 export async function searchDrugs(
   query: string,
   limit: number = 10,
 ): Promise<DrugLabel[]> {
-  const res = await superagent
-    .get(`${FDA_API_BASE}/drug/label.json`)
-    .query({
-      search: `openfda.brand_name:${query}`,
-      limit: limit,
-    })
-    .set("User-Agent", USER_AGENT);
+  // Validate query to prevent fuzzy matching on common words
+  if (!isValidDrugQuery(query)) {
+    return [];
+  }
 
-  return res.body.results || [];
+  // Try multiple search strategies with exact matching
+  const searchQueries = [
+    `openfda.brand_name:"${query}"`, // Exact phrase match for brand name
+    `openfda.generic_name:"${query}"`, // Exact phrase match for generic name
+    `openfda.substance_name:"${query}"`, // Exact phrase match for substance
+    `openfda.brand_name:${query}`, // Partial match as fallback
+  ];
+
+  const allResults: DrugLabel[] = [];
+  const seenNDCs = new Set<string>();
+
+  for (const searchQuery of searchQueries) {
+    try {
+      const res = await superagent
+        .get(`${FDA_API_BASE}/drug/label.json`)
+        .query({
+          search: searchQuery,
+          limit: limit,
+        })
+        .set("User-Agent", USER_AGENT);
+
+      const results = res.body.results || [];
+      for (const drug of results) {
+        const ndc = drug.openfda?.product_ndc?.[0];
+        if (ndc && !seenNDCs.has(ndc)) {
+          seenNDCs.add(ndc);
+          allResults.push(drug);
+          if (allResults.length >= limit) break;
+        }
+      }
+      if (allResults.length >= limit) break;
+    } catch (error) {
+      // Continue to next search strategy
+      continue;
+    }
+  }
+
+  return allResults;
 }
 
 export async function getDrugByNDC(ndc: string): Promise<DrugLabel | null> {
@@ -406,8 +476,15 @@ export function createErrorResponse(operation: string, error: any) {
 
 export function formatDrugSearchResults(drugs: any[], query: string) {
   if (drugs.length === 0) {
+    // Check if query might be invalid
+    const commonWords = ["medication", "medicine", "drug", "pill", "tablet", "capsule"];
+    if (commonWords.includes(query.toLowerCase().trim())) {
+      return createMCPResponse(
+        `No drugs found for "${query}". This appears to be a generic term rather than a specific drug name. Please search for a specific medication name (e.g., "aspirin", "ibuprofen", "metformin").`,
+      );
+    }
     return createMCPResponse(
-      `No drugs found for "${query}". Try a different search term.`,
+      `No drugs found for "${query}". This medication may not be in the FDA database, or the name may be misspelled. Please verify the drug name and try again.`,
     );
   }
 
@@ -784,7 +861,12 @@ export function formatDrugInteractions(
 ) {
   if (interactions.length === 0) {
     return createMCPResponse(
-      `No significant drug interactions found between ${drug1} and ${drug2}. However, always consult a healthcare provider before combining medications.`,
+      `No significant drug interactions found between ${drug1} and ${drug2} in the literature search.\n\n` +
+      `**Important Notes:**\n` +
+      `- If one or both drug names were not found in medical databases, this result may not be accurate\n` +
+      `- Always verify drug names are spelled correctly\n` +
+      `- Always consult a healthcare provider or pharmacist before combining medications\n` +
+      `- The absence of documented interactions does not guarantee safety`,
     );
   }
 
@@ -2185,16 +2267,74 @@ export async function searchClinicalGuidelines(
   }
 }
 
+// Helper function to check if drugs exist in RxNorm
+async function validateDrugNames(drug1: string, drug2: string): Promise<{
+  drug1Valid: boolean;
+  drug2Valid: boolean;
+}> {
+  try {
+    const [drug1Res, drug2Res] = await Promise.all([
+      superagent
+        .get(`${RXNAV_API_BASE}/drugs.json`)
+        .query({ name: drug1 })
+        .set("User-Agent", USER_AGENT)
+        .timeout(5000)
+        .catch(() => ({ body: { drugGroup: null } })),
+      superagent
+        .get(`${RXNAV_API_BASE}/drugs.json`)
+        .query({ name: drug2 })
+        .set("User-Agent", USER_AGENT)
+        .timeout(5000)
+        .catch(() => ({ body: { drugGroup: null } })),
+    ]);
+
+    const drug1Valid =
+      drug1Res.body?.drugGroup?.conceptGroup?.some(
+        (cg: any) => cg.conceptProperties && cg.conceptProperties.length > 0,
+      ) || false;
+    const drug2Valid =
+      drug2Res.body?.drugGroup?.conceptGroup?.some(
+        (cg: any) => cg.conceptProperties && cg.conceptProperties.length > 0,
+      ) || false;
+
+    return { drug1Valid, drug2Valid };
+  } catch (error) {
+    // If validation fails, assume valid to not block legitimate queries
+    return { drug1Valid: true, drug2Valid: true };
+  }
+}
+
 export async function checkDrugInteractions(
   drug1: string,
   drug2: string,
 ): Promise<DrugInteraction[]> {
   try {
+    // CRITICAL: Validate that both drugs exist before searching
+    const { drug1Valid, drug2Valid } = await validateDrugNames(drug1, drug2);
+
+    if (!drug1Valid && !drug2Valid) {
+      // Both drugs are invalid - return empty with indication they weren't found
+      return [];
+    }
+
+    if (!drug1Valid || !drug2Valid) {
+      // One drug is invalid - still search but note limitation
+      console.warn(
+        `One or both drugs may not be valid: ${drug1} (${drug1Valid}), ${drug2} (${drug2Valid})`,
+      );
+    }
+
+    // Normalize drug names for matching in abstracts
+    const drug1Lower = drug1.toLowerCase();
+    const drug2Lower = drug2.toLowerCase();
+    // Extract base drug name (remove common suffixes for better matching)
+    const drug1Base = drug1Lower.replace(/\s*(tablet|capsule|injection|cream|gel)$/, "");
+    const drug2Base = drug2Lower.replace(/\s*(tablet|capsule|injection|cream|gel)$/, "");
+
     // Search for interaction studies between the two drugs
     const interactionTerms = [
       `"${drug1}" AND "${drug2}" AND "interaction"`,
       `"${drug1}" AND "${drug2}" AND "contraindication"`,
-      `"${drug1}" AND "${drug2}" AND "adverse"`,
     ];
 
     const interactions: DrugInteraction[] = [];
@@ -2207,7 +2347,7 @@ export async function checkDrugInteractions(
             db: "pubmed",
             term: term,
             retmode: "json",
-            retmax: 3,
+            retmax: 5, // Increased to get better matches
           })
           .set("User-Agent", USER_AGENT);
 
@@ -2226,10 +2366,28 @@ export async function checkDrugInteractions(
 
           for (const article of articles) {
             const abstract = (article.abstract || "").toLowerCase();
+            const title = (article.title || "").toLowerCase();
 
+            // CRITICAL: Require both drug names to appear in abstract or title
+            // This ensures we're only extracting from relevant articles
+            const hasDrug1 =
+              abstract.includes(drug1Lower) ||
+              abstract.includes(drug1Base) ||
+              title.includes(drug1Lower) ||
+              title.includes(drug1Base);
+            const hasDrug2 =
+              abstract.includes(drug2Lower) ||
+              abstract.includes(drug2Base) ||
+              title.includes(drug2Lower) ||
+              title.includes(drug2Base);
+
+            // Both drugs must be mentioned AND article must discuss interactions
             if (
+              hasDrug1 &&
+              hasDrug2 &&
               (abstract.includes("interaction") ||
-                abstract.includes("contraindication")) &&
+                abstract.includes("contraindication") ||
+                title.includes("interaction")) &&
               !abstract.includes("no interaction") &&
               !abstract.includes("safe combination") &&
               !abstract.includes("no contraindication") &&
@@ -2273,19 +2431,36 @@ export async function checkDrugInteractions(
                   drug2,
                 );
 
-                interactions.push({
-                  drug1,
-                  drug2,
-                  severity,
-                  description: `Interaction between ${drug1} and ${drug2} - see referenced literature`,
-                  clinical_effects:
-                    clinicalEffects ||
-                    "See referenced literature for clinical effects",
-                  management:
-                    management ||
-                    "Consult healthcare provider before combining medications",
-                  evidence_level: "Literature Review",
-                });
+                // CRITICAL: Only add interaction if:
+                // 1. We have validated extracted data (clinical effects OR management), OR
+                // 2. It's a contraindicated/major interaction (even without detailed extraction)
+                // This prevents adding interactions with garbage text
+                if (
+                  clinicalEffects ||
+                  management ||
+                  severity === "Contraindicated" ||
+                  severity === "Major"
+                ) {
+                  interactions.push({
+                    drug1,
+                    drug2,
+                    severity,
+                    description: `Interaction between ${drug1} and ${drug2} - see referenced literature for details`,
+                    clinical_effects:
+                      clinicalEffects ||
+                      (severity === "Contraindicated" || severity === "Major"
+                        ? "See referenced literature for clinical effects"
+                        : "See referenced literature for clinical effects"),
+                    management:
+                      management ||
+                      (severity === "Contraindicated"
+                        ? "Avoid concurrent use - consult healthcare provider"
+                        : "Consult healthcare provider before combining medications"),
+                    evidence_level: "Literature Review",
+                  });
+                  // Only return first valid interaction per drug pair to avoid duplicates
+                  break;
+                }
               }
             }
           }
