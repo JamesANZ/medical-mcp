@@ -33,6 +33,7 @@ Calculate clinical risk scores and medical calculations with comprehensive safet
 
 **Available Calculators:**
 
+**General Calculators:**
 1. **BMI** - Body Mass Index
    - Parameters: `weight` (kg), `height` (cm or m), `heightUnit` (optional, "cm" or "m")
    - Formula: BMI = weight (kg) / height (m)²
@@ -45,19 +46,76 @@ Calculate clinical risk scores and medical calculations with comprehensive safet
    - Parameters: `height` (cm or inches), `heightUnit` (optional), `gender` ("male" or "female")
    - Formula: Male: IBW = 50 + 2.3 × (height (inches) - 60); Female: IBW = 45.5 + 2.3 × (height (inches) - 60)
 
+**Cardiovascular Calculators:**
 4. **CHADS2-VASc** - Stroke risk in atrial fibrillation
-   - Parameters: `age` (years), `hasCHF` (boolean), `hasHypertension` (boolean), `hasDiabetes` (boolean), `hasStrokeTIA` (boolean), `hasVascularDisease` (boolean), `gender` ("male" or "female") or `isFemale` (boolean)
+   - Parameters: `age` (years), `hasCHF` (boolean), `hasHypertension` (boolean), `hasDiabetes` (boolean), `hasStrokeTIA` (boolean), `hasVascularDisease` (boolean), `gender` ("male" or "female")
    - Returns: Risk score (0-9) with anticoagulation recommendations
 
-5. **Creatinine Clearance** - Cockcroft-Gault formula
+5. **HAS-BLED** - Bleeding risk in anticoagulation
+   - Parameters: `age` (years), `hasHypertension` (boolean), `abnormalRenal` (boolean), `abnormalLiver` (boolean), `hasStroke` (boolean), `bleedingHistory` (boolean), `labileINR` (boolean), `drugs` (boolean), `alcohol` (boolean)
+   - Returns: Bleeding risk score (0-9) with recommendations
+
+**Renal Calculators:**
+6. **Creatinine Clearance** - Cockcroft-Gault formula
    - Parameters: `age` (years), `weight` (kg), `creatinine` (mg/dL), `gender` ("male" or "female")
    - Formula: CrCl = [(140 - age) × weight × (0.85 if female)] / [72 × creatinine]
    - Note: Validated for adults (≥18 years)
 
-6. **Pediatric Dosing** - Weight-based dosing for pediatric patients
-   - Parameters: `weight` (kg), `age` (years), `dosePerKg` (mg/kg), `drugName` (string, optional), `isPregnant` (boolean, optional), `isLactating` (boolean, optional)
-   - Formula: Total dose (mg) = dose per kg (mg/kg) × weight (kg)
-   - Includes pediatric age group validation and overdose prevention
+7. **MDRD** - eGFR estimation (Modification of Diet in Renal Disease)
+   - Parameters: `age` (years), `creatinine` (mg/dL), `gender` ("male" or "female"), `isBlack` (boolean, optional)
+   - Formula: eGFR = 175 × (creatinine^-1.154) × (age^-0.203) × (0.742 if female) × (1.212 if black)
+
+8. **CKD-EPI** - eGFR estimation (Chronic Kidney Disease Epidemiology Collaboration)
+   - Parameters: `age` (years), `creatinine` (mg/dL), `gender` ("male" or "female"), `useRaceNeutral` (boolean, optional, default: true)
+   - More accurate than MDRD, especially at higher GFR levels
+
+**Critical Care Calculators:**
+9. **SOFA** - Sequential Organ Failure Assessment Score
+   - Parameters: `respiratory` (PaO2/FiO2), `platelets` (×10³/μL), `bilirubin` (mg/dL), `cardiovascular` (score), `cns` (GCS), `creatinine` (mg/dL)
+   - Used to assess organ dysfunction in ICU patients
+
+10. **qSOFA** - Quick SOFA Score
+    - Parameters: `alteredMentalStatus` (boolean), `systolicBP` (mmHg), `respiratoryRate` (breaths/min)
+    - Rapid bedside assessment for sepsis
+
+11. **Wells Score** - DVT/PE probability
+    - Parameters: `clinicalSymptomsDVT` (boolean), `peMoreLikely` (boolean), `heartRate` (bpm), `immobility` (boolean), `surgery` (boolean), `previousDVT` (boolean), `hemoptysis` (boolean), `malignancy` (boolean)
+    - Returns: Probability score for deep vein thrombosis/pulmonary embolism
+
+12. **CURB-65** - Pneumonia severity score
+    - Parameters: `confusion` (boolean), `urea` (mmol/L or mg/dL), `respiratoryRate` (breaths/min), `systolicBP` (mmHg), `diastolicBP` (mmHg), `age` (years)
+    - Returns: Severity score with admission recommendations
+
+13. **Child-Pugh Score** - Liver disease severity
+    - Parameters: `bilirubin` (mg/dL), `albumin` (g/dL), `inr`, `ascites` ("none" | "mild" | "moderate-severe"), `encephalopathy` ("none" | "mild" | "moderate-severe")
+    - Used to assess prognosis in cirrhosis
+
+14. **MELD** - Model for End-Stage Liver Disease
+    - Parameters: `bilirubin` (mg/dL), `inr`, `creatinine` (mg/dL), `onDialysis` (boolean, optional)
+    - Used for liver transplant prioritization
+
+15. **Anion Gap** - Metabolic acidosis evaluation
+    - Parameters: `sodium` (mEq/L), `chloride` (mEq/L), `bicarbonate` (mEq/L)
+    - Formula: Anion Gap = Na⁺ - (Cl⁻ + HCO₃⁻)
+
+**Missing Critical Calculators:**
+16. **QTc Correction** - Corrected QT interval (critical for drug safety)
+    - Parameters: `qt` (ms), `rr` (ms, optional), `heartRate` (bpm, optional), `formula` ("bazett" | "fridericia" | "framingham")
+    - Critical for identifying drugs that prolong QT interval
+
+17. **Glasgow Coma Scale (GCS)** - Neurological assessment
+    - Parameters: `eyeOpening` (1-4), `verbalResponse` (1-5), `motorResponse` (1-6)
+    - Returns: GCS score (3-15) with interpretation
+
+18. **Parkland Formula** - Burn fluid resuscitation
+    - Parameters: `weight` (kg), `burnPercentage` (%)
+    - Formula: 4 mL × weight (kg) × %TBSA over 24 hours
+
+**Dosing Calculators:**
+19. **Pediatric Dosing** - Weight-based dosing for pediatric patients
+    - Parameters: `weight` (kg), `age` (years), `dosePerKg` (mg/kg), `drugName` (string, optional), `isPregnant` (boolean, optional), `isLactating` (boolean, optional)
+    - Formula: Total dose (mg) = dose per kg (mg/kg) × weight (kg)
+    - Includes pediatric age group validation and overdose prevention
 
 **Safety Features:**
 
@@ -763,7 +821,7 @@ netstat -an | grep :3000
 | Feature              | medical-mcp            | Cicatriiz | Eka MCP | FHIR MCP      |
 | -------------------- | ---------------------- | --------- | ------- | ------------- |
 | FDA Drugs            | ✅                     | ✅        | ❌      | ❌            |
-| Clinical Calculators | ✅ (6 MVP calculators) | ❌        | ❌      | ❌            |
+| Clinical Calculators | ✅ (19 calculators) | ❌        | ❌      | ❌            |
 | Drug Dosing Safety   | ✅ (comprehensive)     | ❌        | ❌      | ❌            |
 | ICD-10 Codes         | 🔄 Planned             | ✅        | ❌      | ❌            |
 | ICD-11 Codes         | 🔄 Planned             | ❌        | ❌      | ❌            |

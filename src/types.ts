@@ -100,12 +100,30 @@ export interface GuidelineScore {
 
 // Calculator Types
 export type CalculatorType =
+  // MVP Calculators
   | "bmi"
   | "bsa"
   | "ibw"
   | "chads2-vasc"
   | "creatinine-clearance"
-  | "pediatric-dosing-weight";
+  | "pediatric-dosing-weight"
+  // Phase 4 Expansion - Cardiovascular
+  | "has-bled"
+  // Phase 4 Expansion - Renal
+  | "mdrd"
+  | "ckd-epi"
+  // Phase 4 Expansion - Critical Care
+  | "sofa"
+  | "qsofa"
+  | "wells"
+  | "curb65"
+  | "child-pugh"
+  | "meld"
+  | "anion-gap"
+  // Phase 4 Expansion - Missing Critical
+  | "qtc-correction"
+  | "glasgow-coma-scale"
+  | "parkland-formula";
 
 export type SafetyWarning = {
   level: "info" | "warning" | "error";

@@ -9,9 +9,30 @@ import {
   calculateBSA,
   calculateIBW,
 } from "./categories/general.js";
-import { calculateCHADS2VASc } from "./categories/cardiovascular.js";
-import { calculateCreatinineClearance } from "./categories/renal.js";
+import {
+  calculateCHADS2VASc,
+  calculateHASBLED,
+} from "./categories/cardiovascular.js";
+import {
+  calculateCreatinineClearance,
+  calculateMDRD,
+  calculateCKDEPI,
+} from "./categories/renal.js";
 import { calculatePediatricDosingWeight } from "./categories/dosing.js";
+import {
+  calculateSOFA,
+  calculateQSOFA,
+  calculateWellsScore,
+  calculateCURB65,
+  calculateChildPugh,
+  calculateMELD,
+  calculateAnionGap,
+} from "./categories/critical-care.js";
+import {
+  calculateQTcCorrection,
+  calculateGlasgowComaScale,
+  calculateParklandFormula,
+} from "./categories/missing-critical.js";
 import type {
   CalculatorType,
   CalculatorParameters,
@@ -27,12 +48,30 @@ const CALCULATORS: Record<
   CalculatorType,
   (params: CalculatorParameters) => CalculatorResult
 > = {
+  // MVP Calculators
   bmi: calculateBMI,
   bsa: calculateBSA,
   ibw: calculateIBW,
   "chads2-vasc": calculateCHADS2VASc,
   "creatinine-clearance": calculateCreatinineClearance,
   "pediatric-dosing-weight": calculatePediatricDosingWeight,
+  // Phase 4 Expansion - Cardiovascular
+  "has-bled": calculateHASBLED,
+  // Phase 4 Expansion - Renal
+  mdrd: calculateMDRD,
+  "ckd-epi": calculateCKDEPI,
+  // Phase 4 Expansion - Critical Care
+  sofa: calculateSOFA,
+  qsofa: calculateQSOFA,
+  wells: calculateWellsScore,
+  curb65: calculateCURB65,
+  "child-pugh": calculateChildPugh,
+  meld: calculateMELD,
+  "anion-gap": calculateAnionGap,
+  // Phase 4 Expansion - Missing Critical
+  "qtc-correction": calculateQTcCorrection,
+  "glasgow-coma-scale": calculateGlasgowComaScale,
+  "parkland-formula": calculateParklandFormula,
 };
 
 /**
