@@ -826,7 +826,7 @@ netstat -an | grep :3000
 | ICD-10 Codes         | 🔄 Planned             | ✅        | ❌      | ❌            |
 | ICD-11 Codes         | 🔄 Planned             | ❌        | ❌      | ❌            |
 | CPT Codes            | 🔄 Planned             | ❌        | ❌      | ❌            |
-| Health.gov Topics    | 🔄 Planned             | ✅        | ❌      | ❌            |
+| Health.gov Topics    | ✅                     | ✅        | ❌      | ❌            |
 | Data Quality         | Live APIs              | Unknown   | Unknown | EHR-dependent |
 | Safety Features      | ✅ Comprehensive       | Unknown   | Unknown | Unknown       |
 | Audit Logging        | ✅                     | Unknown   | Unknown | Unknown       |

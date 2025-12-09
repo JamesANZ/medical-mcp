@@ -170,3 +170,22 @@ export interface CalculatorDefinition {
   citation?: string;
   formula?: string;
 }
+
+// Health.gov Types
+export type HealthTopic = {
+  id: string;
+  title: string;
+  description?: string;
+  url?: string;
+  category?: string;
+};
+
+export type PreventiveService = {
+  id: string;
+  title: string;
+  description?: string;
+  ageGroup?: string;
+  frequency?: string;
+  url?: string;
+  category?: string;
+};

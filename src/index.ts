@@ -31,6 +31,16 @@ import {
 } from "./calculators/index.js";
 import type { CalculatorType } from "./types.js";
 import { createMCPResponse } from "./utils.js";
+import {
+  searchHealthTopics,
+  getHealthTopicDetails,
+  formatHealthTopics,
+  formatHealthTopicDetails,
+} from "./healthgov/index.js";
+import {
+  getPreventiveServices,
+  formatPreventiveServices,
+} from "./healthgov/index.js";
 
 const server = new McpServer({
   name: "medical-mcp",
@@ -319,6 +329,96 @@ server.tool(
       return createMCPResponse(result.formattedOutput);
     } catch (error: any) {
       return createErrorResponse("calculating clinical score", error);
+    }
+  },
+);
+
+// Health.gov Topics Tools
+server.tool(
+  "search-health-topics",
+  "Search for health topics from Health.gov MyHealthfinder",
+  {
+    query: z
+      .string()
+      .describe("Search query for health topics"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .default(20)
+      .describe("Number of results to return (max 50)"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const topics = await searchHealthTopics(query, limit);
+      const formatted = formatHealthTopics(topics, query);
+      return createMCPResponse(formatted);
+    } catch (error: any) {
+      return createErrorResponse("searching health topics", error);
+    }
+  },
+);
+
+server.tool(
+  "get-health-topic-details",
+  "Get detailed information about a specific health topic from Health.gov",
+  {
+    topicId: z.string().describe("Health topic ID from Health.gov"),
+  },
+  async ({ topicId }) => {
+    try {
+      const topic = await getHealthTopicDetails(topicId);
+      const formatted = formatHealthTopicDetails(topic);
+      return createMCPResponse(formatted);
+    } catch (error: any) {
+      return createErrorResponse("fetching health topic details", error);
+    }
+  },
+);
+
+server.tool(
+  "get-preventive-services",
+  "Get preventive service recommendations from Health.gov based on age, sex, and health behaviors",
+  {
+    age: z
+      .number()
+      .int()
+      .min(0)
+      .max(120)
+      .optional()
+      .describe("Age in years"),
+    sex: z
+      .enum(["male", "female"])
+      .optional()
+      .describe("Sex (male or female)"),
+    pregnant: z
+      .boolean()
+      .optional()
+      .describe("Whether patient is pregnant"),
+    sexuallyActive: z
+      .boolean()
+      .optional()
+      .describe("Whether patient is sexually active"),
+    tobaccoUse: z
+      .boolean()
+      .optional()
+      .describe("Whether patient uses tobacco"),
+  },
+  async ({ age, sex, pregnant, sexuallyActive, tobaccoUse }) => {
+    try {
+      const services = await getPreventiveServices({
+        age,
+        sex,
+        pregnant,
+        sexuallyActive,
+        tobaccoUse,
+      });
+      const formatted = formatPreventiveServices(services, { age, sex });
+      return createMCPResponse(formatted);
+    } catch (error: any) {
+      return createErrorResponse("fetching preventive services", error);
     }
   },
 );
