@@ -513,7 +513,7 @@ Once connected, you'll have access to these medical tools:
 #### **💊 Drug Information Tools**
 
 - `get-drug-by-ndc` - Get drug details by NDC code
-- `check-drug-interactions` - Check drug interactions
+- ~~`check-drug-interactions`~~ - **REMOVED** (dangerous false negatives)
 - `get-drug-safety-info` - Get drug safety information
 
 #### **🏥 Clinical Tools**
@@ -538,7 +538,7 @@ User: "What are the side effects of metformin and can it interact with lisinopri
 
 Claude will use:
 - search-drugs for metformin information
-- check-drug-interactions for metformin + lisinopril
+- search-drugs for metformin information
 - get-drug-safety-info for detailed safety data
 ```
 

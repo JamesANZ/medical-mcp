@@ -73,7 +73,7 @@ function createClaudeConfig() {
     console.log("  • search-drug-nomenclature - Search RxNorm database");
     console.log("  • search-google-scholar - Search Google Scholar");
     console.log("  • search-clinical-guidelines - Search medical guidelines");
-    console.log("  • check-drug-interactions - Check drug interactions");
+    // REMOVED: check-drug-interactions (dangerous false negatives)
     console.log("  • search-medical-databases - Comprehensive medical search");
     console.log("  • search-medical-journals - Search top medical journals");
     console.log("  • get-health-statistics - Get WHO health statistics");

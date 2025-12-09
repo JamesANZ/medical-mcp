@@ -9,7 +9,6 @@ import {
   searchGoogleScholar,
   getPubMedArticleByPMID,
   searchClinicalGuidelines,
-  checkDrugInteractions,
   searchMedicalDatabases,
   searchMedicalJournals,
   createErrorResponse,
@@ -18,7 +17,6 @@ import {
   formatHealthIndicators,
   formatPubMedArticles,
   formatGoogleScholarArticles,
-  formatDrugInteractions,
   formatMedicalDatabasesSearch,
   formatMedicalJournalsSearch,
   formatArticleDetails,
@@ -212,22 +210,14 @@ server.tool(
   },
 );
 
-server.tool(
-  "check-drug-interactions",
-  "Check for potential drug-drug interactions between two medications",
-  {
-    drug1: z.string().describe("First drug name"),
-    drug2: z.string().describe("Second drug name"),
-  },
-  async ({ drug1, drug2 }) => {
-    try {
-      const interactions = await checkDrugInteractions(drug1, drug2);
-      return formatDrugInteractions(interactions, drug1, drug2);
-    } catch (error: any) {
-      return createErrorResponse("checking drug interactions", error);
-    }
-  },
-);
+// REMOVED: check-drug-interactions tool
+// This feature has been removed due to dangerous false negatives and inconsistent results.
+// The PubMed-based extraction approach cannot reliably detect critical drug interactions
+// (e.g., sildenafil + isosorbide mononitrate was incorrectly reported as "no interaction"
+// when it is absolutely contraindicated and can cause fatal hypotension).
+// False negatives are worse than no tool at all, as users may trust incorrect results.
+// If drug interaction checking is needed, it should use a proper drug interaction API
+// that understands drug classes and pharmacological mechanisms.
 
 // Enhanced Medical Database Search Tool
 server.tool(
