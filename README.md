@@ -281,18 +281,23 @@ Found 10 article(s)
 
 #### `search-icd10-codes`
 
-Search for ICD-10 codes by code or description.
+Search for ICD-10 codes by code prefix or partial description.
 
-**NOTE:** This tool requires UMLS Terminology Services (UTS) account and licensing. The implementation is ready but will return an error until licensing is obtained.
+**NOTE:** Uses NLM Clinical Tables API (public, no licensing required). Works best with ICD-10 code prefixes (e.g., "E10" for Type 1 diabetes, "I10" for hypertension).
 
 **Input:**
-- `query` (string): ICD-10 code or condition description
+- `query` (string): ICD-10 code prefix (e.g., "E10", "I10") or partial description
 - `limit` (optional, number): Number of results to return (1-50, default: 20)
 
 **Output:**
 - List of ICD-10 codes with descriptions
 
-**Licensing:** See https://www.nlm.nih.gov/research/umls/index.html
+**Example:**
+- Search "E10" to find Type 1 diabetes codes
+- Search "I10" to find hypertension codes
+- Search "J44" to find chronic obstructive pulmonary disease codes
+
+**Note:** The API works best with code prefixes. For text-based searches, try using code category prefixes (E, I, J, K, M, etc.).
 
 #### `search-cpt-codes`
 
@@ -855,7 +860,7 @@ netstat -an | grep :3000
 | FDA Drugs            | ✅                     | ✅        | ❌      | ❌            |
 | Clinical Calculators | ✅ (19 calculators) | ❌        | ❌      | ❌            |
 | Drug Dosing Safety   | ✅ (comprehensive)     | ❌        | ❌      | ❌            |
-| ICD-10 Codes         | 🔄 Requires Licensing  | ✅        | ❌      | ❌            |
+| ICD-10 Codes         | ✅ (Code search)       | ✅        | ❌      | ❌            |
 | ICD-11 Codes         | 🔄 Planned             | ❌        | ❌      | ❌            |
 | CPT Codes            | 🔄 Requires Licensing  | ❌        | ❌      | ❌            |
 | Health.gov Topics    | ✅                     | ✅        | ❌      | ❌            |

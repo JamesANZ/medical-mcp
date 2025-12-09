@@ -435,11 +435,11 @@ server.tool(
 
 server.tool(
   "search-icd10-codes",
-  "Search for ICD-10 codes by code or description. NOTE: Requires UMLS Terminology Services account/licensing.",
+  "Search for ICD-10 codes by code prefix or partial description. Works best with code prefixes (e.g., 'E10', 'I10'). Uses NLM Clinical Tables API (public, no licensing required).",
   {
     query: z
       .string()
-      .describe("ICD-10 code or condition description to search for"),
+      .describe("ICD-10 code prefix (e.g., 'E10', 'I10') or partial description. Works best with code prefixes."),
     limit: z
       .number()
       .int()
