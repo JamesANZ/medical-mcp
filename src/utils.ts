@@ -550,25 +550,88 @@ export function formatDrugDetails(drug: any, ndc: string) {
   return createMCPResponse(result);
 }
 
-// Helper function to categorize indicators by type
-function categorizeIndicator(indicatorName: string): string {
+// Helper function to categorize indicators by type and get explanation
+function categorizeIndicator(indicatorName: string): {
+  category: string;
+  explanation?: string;
+} {
   const name = indicatorName.toLowerCase();
   if (name.includes("life expectancy")) {
-    if (name.includes("healthy")) return "Life Expectancy - Healthy";
-    if (name.includes("disability")) return "Life Expectancy - Disability-Adjusted";
-    if (name.includes("at birth")) return "Life Expectancy - At Birth";
-    return "Life Expectancy";
+    if (name.includes("healthy")) {
+      return {
+        category: "Life Expectancy - Healthy",
+        explanation:
+          "Average number of years a person can expect to live in full health (without disability or illness)",
+      };
+    }
+    if (name.includes("disability") || name.includes("hale")) {
+      return {
+        category: "Life Expectancy - Disability-Adjusted (HALE)",
+        explanation:
+          "Healthy Adjusted Life Expectancy - years lived in full health adjusted for time spent in poor health or with disability",
+      };
+    }
+    if (name.includes("at birth")) {
+      return {
+        category: "Life Expectancy - At Birth",
+        explanation:
+          "Average number of years a newborn is expected to live, assuming current mortality patterns remain constant",
+      };
+    }
+    return {
+      category: "Life Expectancy",
+      explanation:
+        "Average number of years a person is expected to live",
+    };
   }
   if (name.includes("mortality")) {
-    if (name.includes("infant")) return "Mortality - Infant";
-    if (name.includes("maternal")) return "Mortality - Maternal";
-    if (name.includes("child")) return "Mortality - Child";
-    return "Mortality";
+    if (name.includes("infant")) {
+      return {
+        category: "Mortality - Infant",
+        explanation:
+          "Death rate of infants under 1 year of age, typically expressed per 1,000 live births",
+      };
+    }
+    if (name.includes("maternal")) {
+      return {
+        category: "Mortality - Maternal",
+        explanation:
+          "Death rate of women during pregnancy or within 42 days of termination of pregnancy",
+      };
+    }
+    if (name.includes("child") || name.includes("under 5")) {
+      return {
+        category: "Mortality - Child",
+        explanation:
+          "Death rate of children under 5 years of age, typically expressed per 1,000 live births",
+      };
+    }
+    return {
+      category: "Mortality",
+      explanation: "Death rate, typically expressed per 1,000 or 100,000 population",
+    };
   }
-  if (name.includes("prevalence")) return "Prevalence";
-  if (name.includes("incidence")) return "Incidence";
-  if (name.includes("rate")) return "Rate";
-  return "General";
+  if (name.includes("prevalence")) {
+    return {
+      category: "Prevalence",
+      explanation:
+        "Proportion of population with a specific condition at a given time",
+    };
+  }
+  if (name.includes("incidence")) {
+    return {
+      category: "Incidence",
+      explanation:
+        "Number of new cases of a condition occurring in a population during a specific time period",
+    };
+  }
+  if (name.includes("rate")) {
+    return {
+      category: "Rate",
+      explanation: "Frequency of occurrence per unit of population or time",
+    };
+  }
+  return { category: "General" };
 }
 
 export function formatHealthIndicators(
@@ -584,13 +647,16 @@ export function formatHealthIndicators(
   }
 
   // Group indicators by category
-  const categorized = new Map<string, typeof indicators>();
+  const categorized = new Map<
+    string,
+    { indicators: typeof indicators; explanation?: string }
+  >();
   indicators.forEach((ind) => {
-    const category = categorizeIndicator(ind.IndicatorName);
+    const { category, explanation } = categorizeIndicator(ind.IndicatorName);
     if (!categorized.has(category)) {
-      categorized.set(category, []);
+      categorized.set(category, { indicators: [], explanation });
     }
-    categorized.get(category)!.push(ind);
+    categorized.get(category)!.indicators.push(ind);
   });
 
   let result = `**Health Statistics: ${indicator}**\n\n`;
@@ -619,8 +685,12 @@ export function formatHealthIndicators(
   for (const category of categoryOrder) {
     if (!categorized.has(category)) continue;
 
-    const categoryIndicators = categorized.get(category)!;
+    const categoryData = categorized.get(category)!;
+    const categoryIndicators = categoryData.indicators;
     result += `## ${category}\n\n`;
+    if (categoryData.explanation) {
+      result += `*${categoryData.explanation}*\n\n`;
+    }
 
     // Sort within category: most recent first, then by value
     const sorted = categoryIndicators
@@ -1964,12 +2034,48 @@ export async function searchClinicalGuidelines(
       const org = extractOrganization(article);
 
       // Apply organization filter if provided
-      if (
-        organization &&
-        !org.toLowerCase().includes(organization.toLowerCase()) &&
-        !article.title.toLowerCase().includes(organization.toLowerCase())
-      ) {
-        continue;
+      if (organization) {
+        const orgLower = org.toLowerCase();
+        const titleLower = article.title.toLowerCase();
+        const abstractLower = (article.abstract || "").toLowerCase();
+        const journalLower = (article.journal || "").toLowerCase();
+        const orgFilterLower = organization.toLowerCase();
+
+        // Check if organization appears in any relevant field
+        const matchesOrg =
+          orgLower.includes(orgFilterLower) ||
+          titleLower.includes(orgFilterLower) ||
+          abstractLower.includes(orgFilterLower) ||
+          journalLower.includes(orgFilterLower);
+
+        // Also check for common abbreviations/aliases
+        const orgAbbreviations: { [key: string]: string[] } = {
+          aap: ["american academy of pediatrics", "american academy pediatric"],
+          who: ["world health organization"],
+          cdc: ["centers for disease control"],
+          aha: ["american heart association"],
+          acc: ["american college of cardiology"],
+          ada: ["american diabetes association"],
+          acp: ["american college of physicians"],
+        };
+
+        let matchesAbbreviation = false;
+        if (orgAbbreviations[orgFilterLower]) {
+          for (const fullName of orgAbbreviations[orgFilterLower]) {
+            if (
+              orgLower.includes(fullName) ||
+              titleLower.includes(fullName) ||
+              abstractLower.includes(fullName)
+            ) {
+              matchesAbbreviation = true;
+              break;
+            }
+          }
+        }
+
+        if (!matchesOrg && !matchesAbbreviation) {
+          continue;
+        }
       }
 
       // Update author affiliation score if organization pattern matched
@@ -2155,9 +2261,17 @@ export async function checkDrugInteractions(
                 (i) => i.drug1 === drug1 && i.drug2 === drug2,
               );
               if (!existingInteraction) {
-                // Extract specific clinical effects from the abstract
-                const clinicalEffects = extractClinicalEffects(abstract);
-                const management = extractManagementAdvice(abstract);
+                // Extract specific clinical effects from the abstract (pass drug names for validation)
+                const clinicalEffects = extractClinicalEffects(
+                  abstract,
+                  drug1,
+                  drug2,
+                );
+                const management = extractManagementAdvice(
+                  abstract,
+                  drug1,
+                  drug2,
+                );
 
                 interactions.push({
                   drug1,
@@ -2188,24 +2302,78 @@ export async function checkDrugInteractions(
   }
 }
 
-function extractClinicalEffects(abstract: string): string | null {
+// Helper function to validate that extracted text is relevant to drug interactions
+function isValidDrugInteractionText(
+  text: string,
+  drug1: string,
+  drug2: string,
+): boolean {
+  const lowerText = text.toLowerCase();
+  const lowerDrug1 = drug1.toLowerCase();
+  const lowerDrug2 = drug2.toLowerCase();
+
+  // Must contain at least one drug name or common interaction-related terms
+  const hasDrugReference =
+    lowerText.includes(lowerDrug1) ||
+    lowerText.includes(lowerDrug2) ||
+    lowerText.includes("drug") ||
+    lowerText.includes("medication") ||
+    lowerText.includes("therapy") ||
+    lowerText.includes("treatment") ||
+    lowerText.includes("bleeding") ||
+    lowerText.includes("gastric") ||
+    lowerText.includes("renal") ||
+    lowerText.includes("hepatic") ||
+    lowerText.includes("toxicity") ||
+    lowerText.includes("adverse");
+
+  // Should not contain clearly unrelated terms
+  const hasUnrelatedTerms =
+    lowerText.includes("pollutant") ||
+    lowerText.includes("biocompatible") ||
+    lowerText.includes("environmental") ||
+    lowerText.includes("material") ||
+    lowerText.includes("sensor") ||
+    lowerText.includes("device") ||
+    lowerText.includes("nanoparticle") ||
+    lowerText.includes("catalyst");
+
+  return hasDrugReference && !hasUnrelatedTerms;
+}
+
+function extractClinicalEffects(
+  abstract: string,
+  drug1: string,
+  drug2: string,
+): string | null {
   const text = abstract.toLowerCase();
 
-  // Look for specific clinical effect patterns
+  // More specific patterns that look for drug interaction-related effects
+  // Limit to shorter, more focused matches
   const effectPatterns = [
-    /(?:increased|elevated|higher)\s+(?:risk\s+of\s+)?([^.]{10,100})/gi,
-    /(?:decreased|reduced|lower)\s+(?:risk\s+of\s+)?([^.]{10,100})/gi,
-    /(?:may\s+cause|can\s+cause|leads\s+to)\s+([^.]{10,100})/gi,
-    /(?:result\s+in|results\s+in)\s+([^.]{10,100})/gi,
-    /(?:associated\s+with|linked\s+to)\s+([^.]{10,100})/gi,
+    // Patterns with drug/interaction context
+    /(?:increased|elevated|higher)\s+(?:risk\s+of\s+)?(bleeding|gastric|renal|hepatic|toxicity|adverse\s+events?)[^.]{0,50}/gi,
+    /(?:may\s+cause|can\s+cause|leads\s+to)\s+(bleeding|gastric|renal|hepatic|toxicity|adverse\s+events?)[^.]{0,50}/gi,
+    /(?:result\s+in|results\s+in)\s+(increased|decreased|enhanced|reduced)\s+(?:risk\s+of\s+)?(bleeding|gastric|renal|hepatic|toxicity)[^.]{0,50}/gi,
+    // More generic but with validation
+    /(?:interaction|combining).{0,100}(?:may|could|can|leads|results).{0,100}(bleeding|gastric|renal|hepatic|toxicity|adverse|side\s+effect)[^.]{0,50}/gi,
   ];
 
   for (const pattern of effectPatterns) {
     const matches = text.match(pattern);
-    if (matches) {
-      const effect = matches[0].trim();
-      if (effect.length > 15 && effect.length < 150) {
-        return effect;
+    if (matches && matches.length > 0) {
+      // Take the first match and extract a reasonable snippet
+      const match = matches[0].trim();
+      // Extract up to 120 characters from the match, ensuring we get a complete phrase
+      const snippet = match.substring(0, 120).trim();
+
+      if (
+        snippet.length >= 20 &&
+        snippet.length <= 150 &&
+        isValidDrugInteractionText(snippet, drug1, drug2)
+      ) {
+        // Capitalize first letter
+        return snippet.charAt(0).toUpperCase() + snippet.slice(1);
       }
     }
   }
@@ -2213,25 +2381,43 @@ function extractClinicalEffects(abstract: string): string | null {
   return null;
 }
 
-function extractManagementAdvice(abstract: string): string | null {
+function extractManagementAdvice(
+  abstract: string,
+  drug1: string,
+  drug2: string,
+): string | null {
   const text = abstract.toLowerCase();
 
-  // Look for management advice patterns
+  // More specific patterns that look for drug interaction management advice
+  // Focus on medical/drug-related contexts
   const managementPatterns = [
-    /(?:monitor|monitoring)\s+([^.]{10,100})/gi,
-    /(?:avoid|avoiding)\s+([^.]{10,100})/gi,
-    /(?:adjust|adjusting)\s+([^.]{10,100})/gi,
-    /(?:reduce|reducing)\s+([^.]{10,100})/gi,
-    /(?:consider|considering)\s+([^.]{10,100})/gi,
-    /(?:recommend|recommended)\s+([^.]{10,100})/gi,
+    // Monitor patterns with drug context
+    /(?:monitor|monitoring)\s+(?:for\s+)?(bleeding|gastric|renal|hepatic|toxicity|adverse)[^.]{0,50}/gi,
+    /(?:should|must|recommended to)\s+monitor\s+(?:for\s+)?(bleeding|gastric|renal|hepatic|toxicity)[^.]{0,50}/gi,
+    // Avoid patterns
+    /(?:avoid|avoiding|should avoid|contraindicated)\s+(?:concurrent|concomitant|simultaneous)?\s*(?:use|administration|therapy)[^.]{0,50}/gi,
+    /(?:avoid|avoiding)\s+(?:the\s+)?(?:combination|concurrent use)[^.]{0,50}/gi,
+    // Adjust/dose patterns
+    /(?:adjust|adjusting|reduce|reducing|modify)\s+(?:the\s+)?(?:dose|dosage|dosing)[^.]{0,50}/gi,
+    /(?:dose|dosage)\s+(?:adjustment|reduction|modification)\s+(?:may|is|should|recommended)[^.]{0,50}/gi,
+    // Consider/recommend patterns
+    /(?:consider|considering|recommend|recommended)\s+(?:alternative|dose adjustment|monitoring|spacing)[^.]{0,50}/gi,
   ];
 
   for (const pattern of managementPatterns) {
     const matches = text.match(pattern);
-    if (matches) {
-      const advice = matches[0].trim();
-      if (advice.length > 15 && advice.length < 150) {
-        return advice;
+    if (matches && matches.length > 0) {
+      // Take the first match and extract a reasonable snippet
+      const match = matches[0].trim();
+      const snippet = match.substring(0, 120).trim();
+
+      if (
+        snippet.length >= 20 &&
+        snippet.length <= 150 &&
+        isValidDrugInteractionText(snippet, drug1, drug2)
+      ) {
+        // Capitalize first letter
+        return snippet.charAt(0).toUpperCase() + snippet.slice(1);
       }
     }
   }
