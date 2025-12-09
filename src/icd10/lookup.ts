@@ -2,7 +2,13 @@
  * ICD-10/CPT Code Lookup Functions
  *
  * ICD-10: Uses NLM Clinical Tables API (public, no licensing required)
- * CPT: Requires AMA licensing - using alternative approach with web scraping
+ *   - Works best with code prefixes (e.g., "E10", "I10")
+ *   - Searches both codes and descriptions
+ * 
+ * CPT: Requires AMA licensing
+ *   - CPT codes are proprietary to the American Medical Association
+ *   - Provides helpful error messages with licensing information
+ *   - Alternative: Use ICD-10-PCS or HCPCS Level II codes where applicable
  */
 
 import superagent from "superagent";
