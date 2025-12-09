@@ -41,6 +41,12 @@ import {
   getPreventiveServices,
   formatPreventiveServices,
 } from "./healthgov/index.js";
+import {
+  searchICD10Codes,
+  searchCPTCodes,
+  formatICD10Codes,
+  formatCPTCodes,
+} from "./icd10/index.js";
 
 const server = new McpServer({
   name: "medical-mcp",
@@ -419,6 +425,64 @@ server.tool(
       return createMCPResponse(formatted);
     } catch (error: any) {
       return createErrorResponse("fetching preventive services", error);
+    }
+  },
+);
+
+// ICD-10/CPT Code Lookup Tools (Phase 5 - Requires Licensing)
+// NOTE: These tools require UMLS account (ICD-10) and AMA licensing (CPT)
+// They will return errors until licensing is obtained
+
+server.tool(
+  "search-icd10-codes",
+  "Search for ICD-10 codes by code or description. NOTE: Requires UMLS Terminology Services account/licensing.",
+  {
+    query: z
+      .string()
+      .describe("ICD-10 code or condition description to search for"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .default(20)
+      .describe("Number of results to return (max 50)"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const codes = await searchICD10Codes(query, limit);
+      const formatted = formatICD10Codes(codes, query);
+      return createMCPResponse(formatted);
+    } catch (error: any) {
+      return createErrorResponse("searching ICD-10 codes", error);
+    }
+  },
+);
+
+server.tool(
+  "search-cpt-codes",
+  "Search for CPT procedure codes by code or description. NOTE: Requires AMA (American Medical Association) licensing.",
+  {
+    query: z
+      .string()
+      .describe("CPT code or procedure description to search for"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .default(20)
+      .describe("Number of results to return (max 50)"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const codes = await searchCPTCodes(query, limit);
+      const formatted = formatCPTCodes(codes, query);
+      return createMCPResponse(formatted);
+    } catch (error: any) {
+      return createErrorResponse("searching CPT codes", error);
     }
   },
 );

@@ -5,6 +5,9 @@ export const PUBMED_API_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 export const PMC_API_BASE = "https://www.ncbi.nlm.nih.gov/pmc";
 export const GOOGLE_SCHOLAR_API_BASE = "https://scholar.google.com/scholar";
 export const HEALTH_GOV_API_BASE = "https://odphp.health.gov/myhealthfinder/api/v4";
+// NOTE: ICD-10/CPT APIs require licensing - see src/icd10/lookup.ts for details
+export const ICD10_API_BASE = "https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search";
+export const CPT_API_BASE = "https://clinicaltables.nlm.nih.gov/api/cpt/v3/search";
 export const USER_AGENT = "medical-mcp/1.0";
 
 // Controlled vocabulary: PubMed publication types for guidelines

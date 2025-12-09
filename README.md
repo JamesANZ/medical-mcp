@@ -277,6 +277,38 @@ Found 10 article(s)
 
 **Note:** This tool uses web scraping to access Google Scholar since it doesn't provide a public API. It includes rate limiting protection and stealth measures to avoid detection.
 
+### 📋 Medical Coding Tools (NEW - Requires Licensing)
+
+#### `search-icd10-codes`
+
+Search for ICD-10 codes by code or description.
+
+**NOTE:** This tool requires UMLS Terminology Services (UTS) account and licensing. The implementation is ready but will return an error until licensing is obtained.
+
+**Input:**
+- `query` (string): ICD-10 code or condition description
+- `limit` (optional, number): Number of results to return (1-50, default: 20)
+
+**Output:**
+- List of ICD-10 codes with descriptions
+
+**Licensing:** See https://www.nlm.nih.gov/research/umls/index.html
+
+#### `search-cpt-codes`
+
+Search for CPT procedure codes by code or description.
+
+**NOTE:** This tool requires AMA (American Medical Association) licensing. The implementation is ready but will return an error until licensing is obtained.
+
+**Input:**
+- `query` (string): CPT code or procedure description
+- `limit` (optional, number): Number of results to return (1-50, default: 20)
+
+**Output:**
+- List of CPT codes with descriptions
+
+**Licensing:** See https://www.ama-assn.org/practice-management/cpt
+
 ### 🏥 Drug Nomenclature Tools
 
 #### `search-drug-nomenclature`
@@ -823,9 +855,9 @@ netstat -an | grep :3000
 | FDA Drugs            | ✅                     | ✅        | ❌      | ❌            |
 | Clinical Calculators | ✅ (19 calculators) | ❌        | ❌      | ❌            |
 | Drug Dosing Safety   | ✅ (comprehensive)     | ❌        | ❌      | ❌            |
-| ICD-10 Codes         | 🔄 Planned             | ✅        | ❌      | ❌            |
+| ICD-10 Codes         | 🔄 Requires Licensing  | ✅        | ❌      | ❌            |
 | ICD-11 Codes         | 🔄 Planned             | ❌        | ❌      | ❌            |
-| CPT Codes            | 🔄 Planned             | ❌        | ❌      | ❌            |
+| CPT Codes            | 🔄 Requires Licensing  | ❌        | ❌      | ❌            |
 | Health.gov Topics    | ✅                     | ✅        | ❌      | ❌            |
 | Data Quality         | Live APIs              | Unknown   | Unknown | EHR-dependent |
 | Safety Features      | ✅ Comprehensive       | Unknown   | Unknown | Unknown       |
