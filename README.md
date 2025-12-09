@@ -1,6 +1,19 @@
 # Medical MCP Server
 
-A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, and RxNorm.
+A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, and RxNorm, plus clinical calculators for healthcare professionals.
+
+## ⚠️ Medical Disclaimer
+
+**FOR EDUCATIONAL AND INFORMATIONAL PURPOSES ONLY**
+
+This MCP server provides medical information and clinical calculators for educational and informational purposes only. The information and tools provided are **NOT intended to be, and should NOT be used as, a substitute for professional medical advice, diagnosis, or treatment.**
+
+- **Always consult qualified healthcare professionals** for medical decisions
+- **Do not use as the sole basis for clinical decisions**
+- **Not a substitute for clinical judgment**
+- All calculators require professional interpretation in clinical context
+
+See [LEGAL.md](LEGAL.md) for complete legal disclaimers and regulatory information.
 
 <a href="https://glama.ai/mcp/servers/@JamesANZ/medical-mcp">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@JamesANZ/medical-mcp/badge" alt="medical-mcp MCP server" />
@@ -10,7 +23,71 @@ A Model Context Protocol (MCP) server that provides comprehensive medical inform
 
 ## Features
 
-This MCP server offers five specialized tools for querying medical information from reliable sources:
+This MCP server offers comprehensive medical tools including clinical calculators, drug information, health statistics, and medical literature search:
+
+### 🧮 Clinical Calculators (NEW)
+
+#### `calculate-clinical-score`
+
+Calculate clinical risk scores and medical calculations with comprehensive safety checks and validation.
+
+**Available Calculators:**
+
+1. **BMI** - Body Mass Index
+   - Parameters: `weight` (kg), `height` (cm or m), `heightUnit` (optional, "cm" or "m")
+   - Formula: BMI = weight (kg) / height (m)²
+
+2. **BSA** - Body Surface Area (Mosteller formula)
+   - Parameters: `weight` (kg), `height` (cm or m), `heightUnit` (optional)
+   - Formula: BSA = √[(height (cm) × weight (kg)) / 3600]
+
+3. **IBW** - Ideal Body Weight (Devine formula)
+   - Parameters: `height` (cm or inches), `heightUnit` (optional), `gender` ("male" or "female")
+   - Formula: Male: IBW = 50 + 2.3 × (height (inches) - 60); Female: IBW = 45.5 + 2.3 × (height (inches) - 60)
+
+4. **CHADS2-VASc** - Stroke risk in atrial fibrillation
+   - Parameters: `age` (years), `hasCHF` (boolean), `hasHypertension` (boolean), `hasDiabetes` (boolean), `hasStrokeTIA` (boolean), `hasVascularDisease` (boolean), `gender` ("male" or "female") or `isFemale` (boolean)
+   - Returns: Risk score (0-9) with anticoagulation recommendations
+
+5. **Creatinine Clearance** - Cockcroft-Gault formula
+   - Parameters: `age` (years), `weight` (kg), `creatinine` (mg/dL), `gender` ("male" or "female")
+   - Formula: CrCl = [(140 - age) × weight × (0.85 if female)] / [72 × creatinine]
+   - Note: Validated for adults (≥18 years)
+
+6. **Pediatric Dosing** - Weight-based dosing for pediatric patients
+   - Parameters: `weight` (kg), `age` (years), `dosePerKg` (mg/kg), `drugName` (string, optional), `isPregnant` (boolean, optional), `isLactating` (boolean, optional)
+   - Formula: Total dose (mg) = dose per kg (mg/kg) × weight (kg)
+   - Includes pediatric age group validation and overdose prevention
+
+**Safety Features:**
+
+- ✅ Input validation with acceptable parameter ranges
+- ✅ Extreme value detection and warnings
+- ✅ Contraindication checking
+- ✅ Overdose prevention (max dose limits)
+- ✅ Pregnancy/lactation warnings
+- ✅ Pediatric age group validation
+- ✅ Mandatory medical disclaimers on all outputs
+- ✅ Audit logging for liability/QA purposes
+- ✅ Medical guideline citations
+
+**Example:**
+
+```json
+{
+  "tool": "calculate-clinical-score",
+  "arguments": {
+    "calculator": "bmi",
+    "parameters": {
+      "weight": 70,
+      "height": 175,
+      "heightUnit": "cm"
+    }
+  }
+}
+```
+
+### 💊 Drug Information Tools
 
 ### 💊 Drug Information Tools
 
@@ -679,14 +756,53 @@ netstat -an | grep :3000
 # Should show: 127.0.0.1:3000 (not 0.0.0.0:3000)
 ```
 
+## Competitive Comparison
+
+### Feature Comparison
+
+| Feature              | medical-mcp            | Cicatriiz | Eka MCP | FHIR MCP      |
+| -------------------- | ---------------------- | --------- | ------- | ------------- |
+| FDA Drugs            | ✅                     | ✅        | ❌      | ❌            |
+| Clinical Calculators | ✅ (6 MVP calculators) | ❌        | ❌      | ❌            |
+| Drug Dosing Safety   | ✅ (comprehensive)     | ❌        | ❌      | ❌            |
+| ICD-10 Codes         | 🔄 Planned             | ✅        | ❌      | ❌            |
+| ICD-11 Codes         | 🔄 Planned             | ❌        | ❌      | ❌            |
+| CPT Codes            | 🔄 Planned             | ❌        | ❌      | ❌            |
+| Health.gov Topics    | 🔄 Planned             | ✅        | ❌      | ❌            |
+| Data Quality         | Live APIs              | Unknown   | Unknown | EHR-dependent |
+| Safety Features      | ✅ Comprehensive       | Unknown   | Unknown | Unknown       |
+| Audit Logging        | ✅                     | Unknown   | Unknown | Unknown       |
+
+### Safety Features
+
+- ✅ **Comprehensive drug dosing calculators** - Replaces dangerous interaction checker with safe prescribing tools
+- ✅ **Renal/hepatic dose adjustments** - Built into dosing calculators
+- ✅ **Pediatric dosing safety** - Age group validation and overdose prevention
+- ✅ **Input validation** - Acceptable parameter ranges and extreme value detection
+- ✅ **Contraindication checking** - Warnings for inappropriate calculator use
+- ✅ **Overdose prevention** - Hard stops for doses exceeding maximum limits
+- ✅ **Pregnancy/lactation warnings** - Safety alerts for special populations
+- ✅ **Literature-backed information** - All calculators cite medical guidelines
+- ✅ **No hardcoded medical data** - All information retrieved dynamically
+- ✅ **Audit logging** - All calculator usage logged for liability/QA (no patient identifiers)
+
+### Data Quality
+
+- **Live APIs**: All data retrieved in real-time from authoritative sources
+- **No stale data**: Information is always current (depends on source database updates)
+- **Transparent sources**: All calculators cite medical literature and guidelines
+- **Version tracking**: Calculator formulas are versioned and documented
+
 ## Medical Disclaimer
 
 **Important**: This MCP server provides information from authoritative medical sources but should not be used as a substitute for professional medical advice, diagnosis, or treatment. Always consult with qualified healthcare professionals for medical decisions.
 
 - The information provided is for educational and informational purposes only
+- Clinical calculators are tools to assist healthcare professionals, not replace clinical judgment
 - Drug information may not be complete or up-to-date for all medications
 - Health statistics are aggregated data and may not reflect individual circumstances
 - Medical literature should be interpreted by qualified healthcare professionals
+- **All calculator results require professional interpretation in clinical context**
 
 ## Dependencies
 
@@ -717,7 +833,7 @@ If you find this project useful, consider supporting it with Bitcoin:
 
 <code>[0x42ea529282DDE0AA87B42d9E83316eb23FE62c3f](https://etherscan.io/address/0x42ea529282DDE0AA87B42d9E83316eb23FE62c3f)</code>
 
-*Donations from any EVM-compatible network (Ethereum, Polygon, Arbitrum, Optimism, BSC, Avalanche, etc.) will work perfectly! You can also send tokens like USDT, USDC, DAI, and other ERC-20 tokens to this address.*
+_Donations from any EVM-compatible network (Ethereum, Polygon, Arbitrum, Optimism, BSC, Avalanche, etc.) will work perfectly! You can also send tokens like USDT, USDC, DAI, and other ERC-20 tokens to this address._
 
 ## License
 

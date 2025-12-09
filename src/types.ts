@@ -97,3 +97,58 @@ export interface GuidelineScore {
   meshTerms: number; // +0.5 if has guideline-related MeSH terms
   total: number;
 }
+
+// Calculator Types
+export type CalculatorType =
+  | "bmi"
+  | "bsa"
+  | "ibw"
+  | "chads2-vasc"
+  | "creatinine-clearance"
+  | "pediatric-dosing-weight";
+
+export type SafetyWarning = {
+  level: "info" | "warning" | "error";
+  message: string;
+  category?:
+    | "contraindication"
+    | "overdose"
+    | "pregnancy"
+    | "pediatric"
+    | "geriatric";
+};
+
+export type CalculatorResult = {
+  value: number;
+  unit?: string;
+  interpretation?: string;
+  warnings?: SafetyWarning[];
+  citation?: string;
+  formula?: string;
+  notes?: string[];
+};
+
+export type CalculatorParameters = Record<string, unknown>;
+
+export interface CalculatorFunction {
+  (params: CalculatorParameters): CalculatorResult | Promise<CalculatorResult>;
+}
+
+export interface CalculatorDefinition {
+  name: string;
+  description: string;
+  parameters: Record<
+    string,
+    {
+      type: "number" | "string" | "boolean";
+      description: string;
+      required: boolean;
+      min?: number;
+      max?: number;
+      unit?: string;
+    }
+  >;
+  calculate: CalculatorFunction;
+  citation?: string;
+  formula?: string;
+}

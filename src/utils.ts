@@ -67,24 +67,24 @@ function isValidDrugQuery(query: string): boolean {
     "dose",
     "dosage",
   ];
-  
+
   const lowerQuery = trimmed.toLowerCase();
   // If query is only common words or very generic, likely not a real drug name
   if (commonWords.some((word) => lowerQuery === word)) {
     return false;
   }
-  
+
   // Very short queries (1-2 chars) are likely not valid drug names
   if (trimmed.length < 3) {
     return false;
   }
-  
+
   // Queries with fake-looking patterns
   if (/^[a-z]+-\d+$/.test(lowerQuery) || /\d{3,}/.test(trimmed)) {
     // Allow numeric suffixes but be cautious
     return trimmed.length >= 5;
   }
-  
+
   return true;
 }
 
@@ -251,7 +251,8 @@ export async function getHealthIndicators(
         // Add the data to results with better formatting
         dataValues.forEach((item: any) => {
           // Extract full indicator name with all context from API
-          const fullIndicatorName = indicator.IndicatorName || "Unknown Indicator";
+          const fullIndicatorName =
+            indicator.IndicatorName || "Unknown Indicator";
           const unit = item.Unit || "Unknown";
           const value = item.NumericValue;
           const country = item.SpatialDim || "Global";
@@ -476,7 +477,14 @@ export function createErrorResponse(operation: string, error: any) {
 export function formatDrugSearchResults(drugs: any[], query: string) {
   if (drugs.length === 0) {
     // Check if query might be invalid
-    const commonWords = ["medication", "medicine", "drug", "pill", "tablet", "capsule"];
+    const commonWords = [
+      "medication",
+      "medicine",
+      "drug",
+      "pill",
+      "tablet",
+      "capsule",
+    ];
     if (commonWords.includes(query.toLowerCase().trim())) {
       return createMCPResponse(
         `No drugs found for "${query}". This appears to be a generic term rather than a specific drug name. Please search for a specific medication name (e.g., "aspirin", "ibuprofen", "metformin").`,
@@ -549,22 +557,54 @@ export function formatDrugDetails(drug: any, ndc: string) {
     displayName: string;
     priority: number;
   }> = [
-    { key: "indications_and_usage", displayName: "Indications and Usage", priority: 1 },
+    {
+      key: "indications_and_usage",
+      displayName: "Indications and Usage",
+      priority: 1,
+    },
     { key: "purpose", displayName: "Purpose/Uses", priority: 2 },
     { key: "description", displayName: "Description", priority: 3 },
     { key: "warnings", displayName: "Warnings", priority: 4 },
     { key: "contraindications", displayName: "Contraindications", priority: 5 },
-    { key: "dosage_and_administration", displayName: "Dosage and Administration", priority: 6 },
+    {
+      key: "dosage_and_administration",
+      displayName: "Dosage and Administration",
+      priority: 6,
+    },
     { key: "adverse_reactions", displayName: "Adverse Reactions", priority: 7 },
     { key: "drug_interactions", displayName: "Drug Interactions", priority: 8 },
-    { key: "use_in_specific_populations", displayName: "Use in Specific Populations", priority: 9 },
+    {
+      key: "use_in_specific_populations",
+      displayName: "Use in Specific Populations",
+      priority: 9,
+    },
     { key: "overdosage", displayName: "Overdosage", priority: 10 },
-    { key: "clinical_pharmacology", displayName: "Clinical Pharmacology", priority: 11 },
-    { key: "nonclinical_toxicology", displayName: "Nonclinical Toxicology", priority: 12 },
+    {
+      key: "clinical_pharmacology",
+      displayName: "Clinical Pharmacology",
+      priority: 11,
+    },
+    {
+      key: "nonclinical_toxicology",
+      displayName: "Nonclinical Toxicology",
+      priority: 12,
+    },
     { key: "clinical_studies", displayName: "Clinical Studies", priority: 13 },
-    { key: "drug_abuse_and_dependence", displayName: "Drug Abuse and Dependence", priority: 14 },
-    { key: "storage_and_handling", displayName: "Storage and Handling", priority: 15 },
-    { key: "patient_counseling_information", displayName: "Patient Counseling Information", priority: 16 },
+    {
+      key: "drug_abuse_and_dependence",
+      displayName: "Drug Abuse and Dependence",
+      priority: 14,
+    },
+    {
+      key: "storage_and_handling",
+      displayName: "Storage and Handling",
+      priority: 15,
+    },
+    {
+      key: "patient_counseling_information",
+      displayName: "Patient Counseling Information",
+      priority: 16,
+    },
   ];
 
   // Collect all available sections
@@ -599,14 +639,20 @@ export function formatDrugDetails(drug: any, ndc: string) {
     ...sectionMap.map((s) => s.key),
   ]);
   const otherKeys = Object.keys(drug).filter(
-    (key) => !handledKeys.has(key) && drug[key] !== null && drug[key] !== undefined,
+    (key) =>
+      !handledKeys.has(key) && drug[key] !== null && drug[key] !== undefined,
   );
 
   if (otherKeys.length > 0) {
     result += `**Additional Information:**\n`;
     for (const key of otherKeys) {
       const value = drug[key];
-      if (value && (Array.isArray(value) ? value.length > 0 : String(value).trim().length > 0)) {
+      if (
+        value &&
+        (Array.isArray(value)
+          ? value.length > 0
+          : String(value).trim().length > 0)
+      ) {
         const displayKey = key
           .split("_")
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -656,8 +702,7 @@ function categorizeIndicator(indicatorName: string): {
     }
     return {
       category: "Life Expectancy",
-      explanation:
-        "Average number of years a person is expected to live",
+      explanation: "Average number of years a person is expected to live",
     };
   }
   if (name.includes("mortality")) {
@@ -684,7 +729,8 @@ function categorizeIndicator(indicatorName: string): {
     }
     return {
       category: "Mortality",
-      explanation: "Death rate, typically expressed per 1,000 or 100,000 population",
+      explanation:
+        "Death rate, typically expressed per 1,000 or 100,000 population",
     };
   }
   if (name.includes("prevalence")) {
@@ -852,7 +898,6 @@ export function formatGoogleScholarArticles(articles: any[], query: string) {
 
   return createMCPResponse(result);
 }
-
 
 function addDataNote(result: string) {
   result += `• No hardcoded data - all results retrieved in real-time\n\n`;
@@ -2165,10 +2210,7 @@ export async function searchClinicalGuidelines(
         abstract.includes("tumor")
       )
         category = "Oncology";
-      else if (
-        title.includes("diabetes") ||
-        abstract.includes("diabetes")
-      )
+      else if (title.includes("diabetes") || abstract.includes("diabetes"))
         category = "Endocrinology";
       else if (
         title.includes("pediatric") ||
@@ -2185,10 +2227,7 @@ export async function searchClinicalGuidelines(
 
       // Determine evidence level
       let evidenceLevel = "Systematic Review/Consensus";
-      if (
-        title.includes("meta-analysis") ||
-        abstract.includes("meta-analysis")
-      )
+      if (title.includes("meta-analysis") || abstract.includes("meta-analysis"))
         evidenceLevel = "Meta-analysis";
       else if (
         title.includes("systematic review") ||
@@ -2215,9 +2254,7 @@ export async function searchClinicalGuidelines(
         index ===
         self.findIndex(
           (g) =>
-            g.guideline.title
-              .toLowerCase()
-              .replace(/[^\w\s]/g, "") ===
+            g.guideline.title.toLowerCase().replace(/[^\w\s]/g, "") ===
             item.guideline.title.toLowerCase().replace(/[^\w\s]/g, ""),
         ),
     );
@@ -2234,4 +2271,3 @@ export async function searchClinicalGuidelines(
 }
 
 // REMOVED: All drug interaction checking code has been removed
-

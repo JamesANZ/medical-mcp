@@ -25,6 +25,12 @@ import {
   logSafetyWarnings,
 } from "./utils.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  executeCalculatorWithSafety,
+  hasCalculator,
+} from "./calculators/index.js";
+import type { CalculatorType } from "./types.js";
+import { createMCPResponse } from "./utils.js";
 
 const server = new McpServer({
   name: "medical-mcp",
@@ -210,15 +216,6 @@ server.tool(
   },
 );
 
-// REMOVED: check-drug-interactions tool
-// This feature has been removed due to dangerous false negatives and inconsistent results.
-// The PubMed-based extraction approach cannot reliably detect critical drug interactions
-// (e.g., sildenafil + isosorbide mononitrate was incorrectly reported as "no interaction"
-// when it is absolutely contraindicated and can cause fatal hypotension).
-// False negatives are worse than no tool at all, as users may trust incorrect results.
-// If drug interaction checking is needed, it should use a proper drug interaction API
-// that understands drug classes and pharmacological mechanisms.
-
 // Enhanced Medical Database Search Tool
 server.tool(
   "search-medical-databases",
@@ -257,6 +254,53 @@ server.tool(
       return formatMedicalJournalsSearch(articles, query);
     } catch (error: any) {
       return createErrorResponse("searching medical journals", error);
+    }
+  },
+);
+
+// Clinical Calculator Tool
+server.tool(
+  "calculate-clinical-score",
+  "Calculate clinical risk scores and medical calculations. FOR EDUCATIONAL USE ONLY. Not a substitute for clinical judgment.",
+  {
+    calculator: z
+      .enum([
+        "bmi",
+        "bsa",
+        "ibw",
+        "chads2-vasc",
+        "creatinine-clearance",
+        "pediatric-dosing-weight",
+      ])
+      .describe("Type of calculator to use"),
+    parameters: z
+      .record(z.any())
+      .describe(
+        "Calculator-specific parameters (see calculator documentation for required fields)",
+      ),
+    citation: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Include medical guideline citations in output"),
+  },
+  async ({ calculator, parameters }) => {
+    try {
+      if (!hasCalculator(calculator)) {
+        return createErrorResponse(
+          "invalid calculator",
+          new Error(`Unknown calculator type: ${calculator}`),
+        );
+      }
+
+      const result = executeCalculatorWithSafety(
+        calculator as CalculatorType,
+        parameters,
+      );
+
+      return createMCPResponse(result.formattedOutput);
+    } catch (error: any) {
+      return createErrorResponse("calculating clinical score", error);
     }
   },
 );
