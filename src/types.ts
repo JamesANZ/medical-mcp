@@ -87,3 +87,13 @@ export type DrugInteraction = {
   management: string;
   evidence_level: string;
 };
+
+export interface GuidelineScore {
+  publicationType: number; // +2 if has [pt] tag
+  titleKeywords: number; // +1 for "guideline", "recommendation", "consensus" in title
+  journalReputation: number; // +1 for known guideline-publishing journals
+  authorAffiliation: number; // +1 for organization pattern match in affiliations
+  abstractKeywords: number; // +0.5 for guideline terms in abstract
+  meshTerms: number; // +0.5 if has guideline-related MeSH terms
+  total: number;
+}

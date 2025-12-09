@@ -6,6 +6,7 @@ import {
   WHOIndicator,
   ClinicalGuideline,
   DrugInteraction,
+  GuidelineScore,
 } from "./types.js";
 import superagent from "superagent";
 import puppeteer from "puppeteer";
@@ -17,6 +18,11 @@ import {
   RXNAV_API_BASE,
   USER_AGENT,
   WHO_API_BASE,
+  GUIDELINE_PUBLICATION_TYPES,
+  GUIDELINE_MESH_TERMS,
+  GUIDELINE_KEYWORDS,
+  GUIDELINE_SCORE_WEIGHTS,
+  ORG_EXTRACTION_PATTERNS,
 } from "./constants.js";
 
 export function logSafetyWarnings() {
@@ -174,42 +180,57 @@ export async function getHealthIndicators(
         });
 
         // Add the data to results with better formatting
-        countryData.forEach((data) => {
-          // Format the value based on the indicator type
-          let formattedValue = data.value;
-          let unit = data.unit || "Unknown";
+        dataValues.forEach((item: any) => {
+          // Extract full indicator name with all context from API
+          const fullIndicatorName = indicator.IndicatorName || "Unknown Indicator";
+          const unit = item.Unit || "Unknown";
+          const value = item.NumericValue;
+          const country = item.SpatialDim || "Global";
+          const year = item.TimeDim || "Unknown";
+          const ageGroup = item.AgeGroup || item.Age || "";
+          const sex = item.Sex || item.Gender || "";
+          const low = item.Low || item.LowerBound || 0;
+          const high = item.High || item.UpperBound || 0;
 
-          // Add context based on indicator name
-          if (data.indicator.toLowerCase().includes("life expectancy")) {
-            unit = "years";
-            formattedValue = `${data.value} years`;
-          } else if (data.indicator.toLowerCase().includes("mortality")) {
-            unit = "per 1000 population";
-            formattedValue = `${data.value} per 1000`;
-          } else if (data.indicator.toLowerCase().includes("prevalence")) {
-            unit = "%";
-            formattedValue = `${data.value}%`;
-          } else if (data.indicator.toLowerCase().includes("incidence")) {
-            unit = "per 100,000 population";
-            formattedValue = `${data.value} per 100,000`;
+          if (value !== null && value !== undefined) {
+            // Format the value with unit
+            let formattedValue = value;
+            if (unit && unit !== "Unknown") {
+              formattedValue = `${value} ${unit}`;
+            }
+
+            // Build descriptive comments with full context
+            const commentParts: string[] = [];
+            if (unit && unit !== "Unknown") {
+              commentParts.push(`Unit: ${unit}`);
+            }
+            if (year && year !== "Unknown") {
+              commentParts.push(`Year: ${year}`);
+            }
+            if (ageGroup) {
+              commentParts.push(`Age Group: ${ageGroup}`);
+            }
+            if (sex) {
+              commentParts.push(`Sex: ${sex}`);
+            }
+
+            results.push({
+              IndicatorCode: indicator.IndicatorCode,
+              IndicatorName: fullIndicatorName, // Use full indicator name from API
+              SpatialDimType: item.SpatialDimType || "Country",
+              SpatialDim: country,
+              TimeDim: year.toString(),
+              TimeDimType: item.TimeDimType || "Year",
+              DataSourceDim: item.DataSourceDim || "WHO",
+              DataSourceType: item.DataSourceType || "Official",
+              Value: formattedValue,
+              NumericValue: value,
+              Low: low,
+              High: high,
+              Comments: commentParts.join(" | ") || "No additional context",
+              Date: item.Date || new Date().toISOString(),
+            });
           }
-
-          results.push({
-            IndicatorCode: indicator.IndicatorCode,
-            IndicatorName: data.indicator,
-            SpatialDimType: "Country",
-            SpatialDim: data.country,
-            TimeDim: data.year.toString(),
-            TimeDimType: "Year",
-            DataSourceDim: "WHO",
-            DataSourceType: "Official",
-            Value: formattedValue,
-            NumericValue: data.value,
-            Low: 0,
-            High: 0,
-            Comments: `Unit: ${unit} | Year: ${data.year}`,
-            Date: new Date().toISOString(),
-          });
         });
       } catch (dataError) {
         console.error(
@@ -410,45 +431,144 @@ export function formatDrugSearchResults(drugs: any[], query: string) {
   return createMCPResponse(result);
 }
 
+// Helper function to format a drug section
+function formatDrugSection(
+  content: string | string[],
+  maxLength: number = 500,
+): string {
+  if (!content) return "";
+  const items = Array.isArray(content) ? content : [content];
+  return items
+    .map((item) => {
+      if (item.length > maxLength) {
+        return item.substring(0, maxLength) + "...";
+      }
+      return item;
+    })
+    .join("\n\n");
+}
+
 export function formatDrugDetails(drug: any, ndc: string) {
   if (!drug) {
     return createMCPResponse(`No drug found with NDC: ${ndc}`);
   }
 
   let result = `**Drug Details for NDC: ${ndc}**\n\n`;
+
+  // Basic Information (always displayed)
   result += `**Basic Information:**\n`;
-  result += `- Brand Name: ${drug.openfda.brand_name?.[0] || "Not specified"}\n`;
-  result += `- Generic Name: ${drug.openfda.generic_name?.[0] || "Not specified"}\n`;
-  result += `- Manufacturer: ${drug.openfda.manufacturer_name?.[0] || "Not specified"}\n`;
-  result += `- Route: ${drug.openfda.route?.[0] || "Not specified"}\n`;
-  result += `- Dosage Form: ${drug.openfda.dosage_form?.[0] || "Not specified"}\n`;
-  result += `- Last Updated: ${drug.effective_time}\n\n`;
+  result += `- Brand Name: ${drug.openfda?.brand_name?.[0] || "Not specified"}\n`;
+  result += `- Generic Name: ${drug.openfda?.generic_name?.[0] || "Not specified"}\n`;
+  result += `- Manufacturer: ${drug.openfda?.manufacturer_name?.[0] || "Not specified"}\n`;
+  result += `- Route: ${drug.openfda?.route?.[0] || "Not specified"}\n`;
+  result += `- Dosage Form: ${drug.openfda?.dosage_form?.[0] || "Not specified"}\n`;
+  if (drug.openfda?.substance_name?.[0]) {
+    result += `- Active Substance: ${drug.openfda.substance_name[0]}\n`;
+  }
+  result += `- Last Updated: ${drug.effective_time || "Not specified"}\n\n`;
 
-  if (drug.purpose && drug.purpose.length > 0) {
-    result += `**Purpose/Uses:**\n`;
-    drug.purpose.forEach((purpose: string, index: number) => {
-      result += `${index + 1}. ${purpose}\n`;
-    });
+  // Define section priority order and display names
+  const sectionMap: Array<{
+    key: string;
+    displayName: string;
+    priority: number;
+  }> = [
+    { key: "indications_and_usage", displayName: "Indications and Usage", priority: 1 },
+    { key: "purpose", displayName: "Purpose/Uses", priority: 2 },
+    { key: "description", displayName: "Description", priority: 3 },
+    { key: "warnings", displayName: "Warnings", priority: 4 },
+    { key: "contraindications", displayName: "Contraindications", priority: 5 },
+    { key: "dosage_and_administration", displayName: "Dosage and Administration", priority: 6 },
+    { key: "adverse_reactions", displayName: "Adverse Reactions", priority: 7 },
+    { key: "drug_interactions", displayName: "Drug Interactions", priority: 8 },
+    { key: "use_in_specific_populations", displayName: "Use in Specific Populations", priority: 9 },
+    { key: "overdosage", displayName: "Overdosage", priority: 10 },
+    { key: "clinical_pharmacology", displayName: "Clinical Pharmacology", priority: 11 },
+    { key: "nonclinical_toxicology", displayName: "Nonclinical Toxicology", priority: 12 },
+    { key: "clinical_studies", displayName: "Clinical Studies", priority: 13 },
+    { key: "drug_abuse_and_dependence", displayName: "Drug Abuse and Dependence", priority: 14 },
+    { key: "storage_and_handling", displayName: "Storage and Handling", priority: 15 },
+    { key: "patient_counseling_information", displayName: "Patient Counseling Information", priority: 16 },
+  ];
+
+  // Collect all available sections
+  const availableSections = sectionMap
+    .filter((section) => {
+      const value = drug[section.key];
+      return (
+        value &&
+        (Array.isArray(value) ? value.length > 0 : value.trim().length > 0)
+      );
+    })
+    .sort((a, b) => a.priority - b.priority);
+
+  // Display sections in priority order
+  for (const section of availableSections) {
+    const content = drug[section.key];
+    result += `**${section.displayName}:**\n`;
+    if (Array.isArray(content)) {
+      content.forEach((item: string, index: number) => {
+        result += `${index + 1}. ${formatDrugSection(item, 800)}\n`;
+      });
+    } else {
+      result += `${formatDrugSection(content, 800)}\n`;
+    }
     result += "\n";
   }
 
-  if (drug.warnings && drug.warnings.length > 0) {
-    result += `**Warnings:**\n`;
-    drug.warnings.forEach((warning: string, index: number) => {
-      result += `${index + 1}. ${warning.substring(0, 300)}${warning.length > 300 ? "..." : ""}\n`;
-    });
+  // Handle any other top-level keys not in our predefined list
+  const handledKeys = new Set([
+    "openfda",
+    "effective_time",
+    ...sectionMap.map((s) => s.key),
+  ]);
+  const otherKeys = Object.keys(drug).filter(
+    (key) => !handledKeys.has(key) && drug[key] !== null && drug[key] !== undefined,
+  );
+
+  if (otherKeys.length > 0) {
+    result += `**Additional Information:**\n`;
+    for (const key of otherKeys) {
+      const value = drug[key];
+      if (value && (Array.isArray(value) ? value.length > 0 : String(value).trim().length > 0)) {
+        const displayKey = key
+          .split("_")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+        result += `- ${displayKey}: ${formatDrugSection(value, 300)}\n`;
+      }
+    }
     result += "\n";
   }
 
-  if (drug.drug_interactions && drug.drug_interactions.length > 0) {
-    result += `**Drug Interactions:**\n`;
-    drug.drug_interactions.forEach((interaction: string, index: number) => {
-      result += `${index + 1}. ${interaction.substring(0, 300)}${interaction.length > 300 ? "..." : ""}\n`;
-    });
-    result += "\n";
+  // Note if no additional sections are available
+  if (availableSections.length === 0 && otherKeys.length === 0) {
+    result += `*No additional detailed information sections available for this drug.\n`;
+    result += `Basic information is displayed above. For more details, please consult the full FDA label or a healthcare provider.*\n\n`;
   }
 
   return createMCPResponse(result);
+}
+
+// Helper function to categorize indicators by type
+function categorizeIndicator(indicatorName: string): string {
+  const name = indicatorName.toLowerCase();
+  if (name.includes("life expectancy")) {
+    if (name.includes("healthy")) return "Life Expectancy - Healthy";
+    if (name.includes("disability")) return "Life Expectancy - Disability-Adjusted";
+    if (name.includes("at birth")) return "Life Expectancy - At Birth";
+    return "Life Expectancy";
+  }
+  if (name.includes("mortality")) {
+    if (name.includes("infant")) return "Mortality - Infant";
+    if (name.includes("maternal")) return "Mortality - Maternal";
+    if (name.includes("child")) return "Mortality - Child";
+    return "Mortality";
+  }
+  if (name.includes("prevalence")) return "Prevalence";
+  if (name.includes("incidence")) return "Incidence";
+  if (name.includes("rate")) return "Rate";
+  return "General";
 }
 
 export function formatHealthIndicators(
@@ -463,22 +583,72 @@ export function formatHealthIndicators(
     );
   }
 
+  // Group indicators by category
+  const categorized = new Map<string, typeof indicators>();
+  indicators.forEach((ind) => {
+    const category = categorizeIndicator(ind.IndicatorName);
+    if (!categorized.has(category)) {
+      categorized.set(category, []);
+    }
+    categorized.get(category)!.push(ind);
+  });
+
   let result = `**Health Statistics: ${indicator}**\n\n`;
   if (country) {
-    result += `Country: ${country}\n`;
+    result += `Country Filter: ${country}\n`;
   }
-  result += `Found ${indicators.length} data points\n\n`;
+  result += `Found ${indicators.length} data point(s) across ${categorized.size} category/categories\n\n`;
 
-  const displayIndicators = indicators.slice(0, limit);
-  displayIndicators.forEach((ind, index) => {
-    result += `${index + 1}. **${ind.SpatialDim}** (${ind.TimeDim})\n`;
-    result += `   Value: ${ind.Value} ${ind.Comments || ""}\n`;
-    result += `   Numeric Value: ${ind.NumericValue}\n`;
-    if (ind.Low && ind.High) {
-      result += `   Range: ${ind.Low} - ${ind.High}\n`;
-    }
-    result += `   Date: ${ind.Date}\n\n`;
-  });
+  // Sort categories by priority (Life Expectancy first, then others)
+  const categoryOrder = [
+    "Life Expectancy - At Birth",
+    "Life Expectancy - Healthy",
+    "Life Expectancy - Disability-Adjusted",
+    "Life Expectancy",
+    "Mortality - Infant",
+    "Mortality - Maternal",
+    "Mortality - Child",
+    "Mortality",
+    "Prevalence",
+    "Incidence",
+    "Rate",
+    "General",
+  ];
+
+  let itemIndex = 1;
+  for (const category of categoryOrder) {
+    if (!categorized.has(category)) continue;
+
+    const categoryIndicators = categorized.get(category)!;
+    result += `## ${category}\n\n`;
+
+    // Sort within category: most recent first, then by value
+    const sorted = categoryIndicators
+      .sort((a, b) => {
+        // First by year (most recent first)
+        const yearA = parseInt(a.TimeDim) || 0;
+        const yearB = parseInt(b.TimeDim) || 0;
+        if (yearB !== yearA) return yearB - yearA;
+        // Then by numeric value (higher first for life expectancy, lower for mortality)
+        return b.NumericValue - a.NumericValue;
+      })
+      .slice(0, Math.min(limit, categoryIndicators.length));
+
+    sorted.forEach((ind) => {
+      result += `${itemIndex}. **${ind.IndicatorName}**\n`;
+      result += `   Country: ${ind.SpatialDim}\n`;
+      result += `   Value: **${ind.Value}**\n`;
+      if (ind.Comments && ind.Comments !== "No additional context") {
+        result += `   Context: ${ind.Comments}\n`;
+      }
+      if (ind.Low && ind.High && ind.Low !== 0 && ind.High !== 0) {
+        result += `   Range: ${ind.Low} - ${ind.High}\n`;
+      }
+      result += `   Year: ${ind.TimeDim}\n`;
+      result += `   Indicator Code: ${ind.IndicatorCode}\n\n`;
+      itemIndex++;
+    });
+  }
 
   return createMCPResponse(result);
 }
@@ -1589,225 +1759,320 @@ export async function getPubMedArticleByPMID(
   }
 }
 
+// Helper function to calculate guideline score for an article
+function calculateGuidelineScore(
+  article: PubMedArticle,
+  hasPublicationType: boolean,
+): GuidelineScore {
+  const title = article.title.toLowerCase();
+  const abstract = (article.abstract || "").toLowerCase();
+
+  const score: GuidelineScore = {
+    publicationType: 0,
+    titleKeywords: 0,
+    journalReputation: 0,
+    authorAffiliation: 0,
+    abstractKeywords: 0,
+    meshTerms: 0,
+    total: 0,
+  };
+
+  // Publication type score
+  if (hasPublicationType) {
+    score.publicationType = GUIDELINE_SCORE_WEIGHTS.PUBLICATION_TYPE;
+  }
+
+  // Title keywords score
+  for (const keyword of GUIDELINE_KEYWORDS) {
+    if (title.includes(keyword.toLowerCase())) {
+      score.titleKeywords = GUIDELINE_SCORE_WEIGHTS.TITLE_KEYWORD;
+      break; // Only count once
+    }
+  }
+
+  // Abstract keywords score (can be partial)
+  for (const keyword of GUIDELINE_KEYWORDS) {
+    if (abstract.includes(keyword.toLowerCase())) {
+      score.abstractKeywords += GUIDELINE_SCORE_WEIGHTS.ABSTRACT_KEYWORD;
+    }
+  }
+  score.abstractKeywords = Math.min(
+    score.abstractKeywords,
+    GUIDELINE_SCORE_WEIGHTS.ABSTRACT_KEYWORD * 2,
+  ); // Cap at 2 * weight
+
+  // Journal reputation (recognize known guideline-publishing journals)
+  const knownGuidelineJournals = [
+    "journal of the american",
+    "new england journal",
+    "lancet",
+    "bmj",
+    "annals of",
+    "guidelines",
+    "recommendations",
+  ];
+  const journal = article.journal.toLowerCase();
+  for (const knownJournal of knownGuidelineJournals) {
+    if (journal.includes(knownJournal)) {
+      score.journalReputation = GUIDELINE_SCORE_WEIGHTS.JOURNAL_REPUTATION;
+      break;
+    }
+  }
+
+  // Author affiliation (organization pattern matching)
+  // Note: We'll check affiliations when extracting organization
+  // This is a placeholder that will be updated during organization extraction
+  score.authorAffiliation = 0;
+
+  // MeSH terms (would require additional API call to check, simplified here)
+  // For now, assume 0 unless we add MeSH term checking
+  score.meshTerms = 0;
+
+  score.total =
+    score.publicationType +
+    score.titleKeywords +
+    score.journalReputation +
+    score.authorAffiliation +
+    score.abstractKeywords +
+    score.meshTerms;
+
+  return score;
+}
+
+// Helper function to extract organization dynamically using patterns
+function extractOrganization(article: PubMedArticle): string {
+  let org = "Unknown Organization";
+
+  // Try to extract from journal first
+  if (article.journal) {
+    org = article.journal;
+  }
+
+  // Try to extract from abstract using generic patterns
+  if (article.abstract) {
+    for (const pattern of ORG_EXTRACTION_PATTERNS) {
+      const matches = article.abstract.match(pattern);
+      if (matches && matches.length > 0) {
+        // Take the first full match
+        const fullMatch = matches[0];
+        org = fullMatch;
+        break;
+      }
+    }
+  }
+
+  // Try to extract from title if still unknown
+  if (org === "Unknown Organization" && article.title) {
+    for (const pattern of ORG_EXTRACTION_PATTERNS) {
+      const matches = article.title.match(pattern);
+      if (matches && matches.length > 0) {
+        org = matches[0];
+        break;
+      }
+    }
+  }
+
+  return org;
+}
+
+// Helper function to search PubMed with a query
+async function searchPubMed(
+  query: string,
+  maxResults: number = 20,
+): Promise<PubMedArticle[]> {
+  try {
+    const searchRes = await superagent
+      .get(`${PUBMED_API_BASE}/esearch.fcgi`)
+      .query({
+        db: "pubmed",
+        term: query,
+        retmode: "json",
+        retmax: maxResults,
+      })
+      .set("User-Agent", USER_AGENT);
+
+    const idList = searchRes.body.esearchresult?.idlist || [];
+    if (idList.length === 0) return [];
+
+    // Fetch article details
+    const fetchRes = await superagent
+      .get(`${PUBMED_API_BASE}/efetch.fcgi`)
+      .query({
+        db: "pubmed",
+        id: idList.join(","),
+        retmode: "xml",
+      })
+      .set("User-Agent", USER_AGENT);
+
+    return parsePubMedXML(fetchRes.text);
+  } catch (error) {
+    console.error(`Error searching PubMed with query: ${query}`, error);
+    return [];
+  }
+}
+
 export async function searchClinicalGuidelines(
   query: string,
   organization?: string,
 ): Promise<ClinicalGuideline[]> {
   try {
-    // Enhanced search strategy with broader terms and specific guideline databases
-    const searchTerms = [
-      `guidelines ${query}`,
-      `recommendations ${query}`,
-      `consensus ${query}`,
-      `position statement ${query}`,
-      `evidence-based ${query}`,
-      `best practice ${query}`,
-      `American Heart Association ${query}`,
-      `American College of Cardiology ${query}`,
-      `American Diabetes Association ${query}`,
-      `American College of Physicians ${query}`,
-      `WHO guidelines ${query}`,
-      `CDC guidelines ${query}`,
-    ];
+    const allArticles: Array<{
+      article: PubMedArticle;
+      score: GuidelineScore;
+      hasPublicationType: boolean;
+    }> = [];
 
-    const allGuidelines: ClinicalGuideline[] = [];
+    // Layer 1: Publication Type Filter (High Precision)
+    const pubTypeQuery = `(${query}) AND (${GUIDELINE_PUBLICATION_TYPES.join(" OR ")})`;
+    const layer1Articles = await searchPubMed(pubTypeQuery, 20);
 
-    for (const searchTerm of searchTerms) {
-      try {
-        const searchRes = await superagent
-          .get(`${PUBMED_API_BASE}/esearch.fcgi`)
-          .query({
-            db: "pubmed",
-            term: searchTerm,
-            retmode: "json",
-            retmax: 10, // Increased from 5
-          })
-          .set("User-Agent", USER_AGENT);
+    for (const article of layer1Articles) {
+      const score = calculateGuidelineScore(article, true);
+      allArticles.push({ article, score, hasPublicationType: true });
+    }
 
-        const idList = searchRes.body.esearchresult?.idlist || [];
-        if (idList.length === 0) continue;
+    // Layer 2: Semantic Search (Broader Coverage)
+    // Only if Layer 1 returned fewer than threshold results
+    const LAYER_THRESHOLD = 5;
+    if (allArticles.length < LAYER_THRESHOLD) {
+      const semanticKeywords = GUIDELINE_KEYWORDS.slice(0, 5)
+        .map((k) => `${k}[tiab]`)
+        .join(" OR ");
+      const semanticQuery = `(${query}) AND (${semanticKeywords})`;
+      const layer2Articles = await searchPubMed(semanticQuery, 20);
 
-        // Fetch article details
-        const fetchRes = await superagent
-          .get(`${PUBMED_API_BASE}/efetch.fcgi`)
-          .query({
-            db: "pubmed",
-            id: idList.join(","),
-            retmode: "xml",
-          })
-          .set("User-Agent", USER_AGENT);
-
-        const articles = parsePubMedXML(fetchRes.text);
-
-        for (const article of articles) {
-          // More flexible guideline detection
-          const title = article.title.toLowerCase();
-          const abstract = (article.abstract || "").toLowerCase();
-
-          const isGuideline =
-            title.includes("guideline") ||
-            title.includes("recommendation") ||
-            title.includes("consensus") ||
-            title.includes("position statement") ||
-            title.includes("expert consensus") ||
-            title.includes("best practice") ||
-            title.includes("evidence-based") ||
-            abstract.includes("guideline") ||
-            abstract.includes("recommendation") ||
-            abstract.includes("consensus") ||
-            abstract.includes("position statement");
-
-          if (isGuideline) {
-            // Extract organization from journal, abstract, or title
-            let org = "Unknown Organization";
-
-            // Try to extract from journal first
-            if (article.journal) {
-              org = article.journal;
-            }
-
-            // Try to extract from abstract
-            if (article.abstract) {
-              const orgPatterns = [
-                /([A-Z][a-z]+ [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/,
-                /(American [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/,
-                /(World Health Organization|WHO)/,
-                /(Centers for Disease Control|CDC)/,
-                /(National [A-Z][a-z]+ (?:Institute|Institute of Health|Academy))/,
-              ];
-
-              for (const pattern of orgPatterns) {
-                const match = article.abstract.match(pattern);
-                if (match) {
-                  org = match[1];
-                  break;
-                }
-              }
-            }
-
-            // Try to extract from title
-            if (org === "Unknown Organization") {
-              const titleOrgPatterns = [
-                /(American [A-Z][a-z]+ (?:Society|Association|College|Institute|Foundation|Organization|Committee|Academy))/,
-                /(World Health Organization|WHO)/,
-                /(Centers for Disease Control|CDC)/,
-              ];
-
-              for (const pattern of titleOrgPatterns) {
-                const match = article.title.match(pattern);
-                if (match) {
-                  org = match[1];
-                  break;
-                }
-              }
-            }
-
-            // Skip if organization filter is specified and doesn't match
-            if (
-              organization &&
-              !org.toLowerCase().includes(organization.toLowerCase()) &&
-              !article.title.toLowerCase().includes(organization.toLowerCase())
-            ) {
-              continue;
-            }
-
-            // Extract year
-            const yearMatch = article.publication_date.match(/(\d{4})/);
-            const year = yearMatch ? yearMatch[1] : "Unknown";
-
-            // Determine category based on content
-            let category = "General";
-            if (
-              title.includes("cardiology") ||
-              abstract.includes("cardiac") ||
-              abstract.includes("heart")
-            )
-              category = "Cardiology";
-            else if (
-              title.includes("oncology") ||
-              abstract.includes("cancer") ||
-              abstract.includes("tumor")
-            )
-              category = "Oncology";
-            else if (
-              title.includes("diabetes") ||
-              abstract.includes("diabetes")
-            )
-              category = "Endocrinology";
-            else if (
-              title.includes("hypertension") ||
-              abstract.includes("hypertension") ||
-              abstract.includes("blood pressure")
-            )
-              category = "Cardiology";
-            else if (
-              title.includes("infectious") ||
-              abstract.includes("infection") ||
-              abstract.includes("infectious")
-            )
-              category = "Infectious Diseases";
-            else if (
-              title.includes("pediatric") ||
-              abstract.includes("pediatric") ||
-              abstract.includes("children")
-            )
-              category = "Pediatrics";
-            else if (
-              title.includes("mental") ||
-              abstract.includes("mental") ||
-              abstract.includes("psychiatric")
-            )
-              category = "Psychiatry";
-
-            // Determine evidence level
-            let evidenceLevel = "Systematic Review/Consensus";
-            if (
-              title.includes("meta-analysis") ||
-              abstract.includes("meta-analysis")
-            )
-              evidenceLevel = "Meta-analysis";
-            else if (
-              title.includes("systematic review") ||
-              abstract.includes("systematic review")
-            )
-              evidenceLevel = "Systematic Review";
-            else if (
-              title.includes("randomized") ||
-              abstract.includes("randomized")
-            )
-              evidenceLevel = "Randomized Controlled Trial";
-
-            allGuidelines.push({
-              title: article.title,
-              organization: org,
-              year: year,
-              url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
-              description: (article.abstract || "").substring(0, 200) + "...",
-              category: category,
-              evidence_level: evidenceLevel,
-            });
-          }
-        }
-      } catch (error) {
-        console.error(
-          `Error searching for guidelines with term: ${searchTerm}`,
-          error instanceof Error ? error.message : String(error),
+      for (const article of layer2Articles) {
+        // Check if we already have this article (by PMID)
+        const existing = allArticles.find(
+          (a) => a.article.pmid === article.pmid,
         );
+        if (!existing) {
+          const score = calculateGuidelineScore(article, false);
+          allArticles.push({ article, score, hasPublicationType: false });
+        }
       }
     }
 
+    // Score all articles and filter by minimum threshold
+    const scoredGuidelines: Array<{
+      guideline: ClinicalGuideline;
+      score: number;
+    }> = [];
+
+    for (const { article, score } of allArticles) {
+      // Extract organization dynamically first (needed for scoring)
+      const org = extractOrganization(article);
+
+      // Apply organization filter if provided
+      if (
+        organization &&
+        !org.toLowerCase().includes(organization.toLowerCase()) &&
+        !article.title.toLowerCase().includes(organization.toLowerCase())
+      ) {
+        continue;
+      }
+
+      // Update author affiliation score if organization pattern matched
+      if (org !== "Unknown Organization") {
+        score.authorAffiliation = GUIDELINE_SCORE_WEIGHTS.AUTHOR_AFFILIATION;
+      }
+
+      // Recalculate total score after affiliation check
+      score.total =
+        score.publicationType +
+        score.titleKeywords +
+        score.journalReputation +
+        score.authorAffiliation +
+        score.abstractKeywords +
+        score.meshTerms;
+
+      // Skip if below minimum threshold after updating affiliation score
+      if (score.total < GUIDELINE_SCORE_WEIGHTS.MIN_SCORE_THRESHOLD) {
+        continue;
+      }
+
+      // Extract year
+      const yearMatch = article.publication_date.match(/(\d{4})/);
+      const year = yearMatch ? yearMatch[1] : "Unknown";
+
+      // Determine category (keep simple, generic approach)
+      const title = article.title.toLowerCase();
+      const abstract = (article.abstract || "").toLowerCase();
+      let category = "General";
+      if (
+        title.includes("cardiology") ||
+        abstract.includes("cardiac") ||
+        abstract.includes("heart")
+      )
+        category = "Cardiology";
+      else if (
+        title.includes("oncology") ||
+        abstract.includes("cancer") ||
+        abstract.includes("tumor")
+      )
+        category = "Oncology";
+      else if (
+        title.includes("diabetes") ||
+        abstract.includes("diabetes")
+      )
+        category = "Endocrinology";
+      else if (
+        title.includes("pediatric") ||
+        abstract.includes("pediatric") ||
+        abstract.includes("children")
+      )
+        category = "Pediatrics";
+      else if (
+        title.includes("mental") ||
+        abstract.includes("mental") ||
+        abstract.includes("psychiatric")
+      )
+        category = "Psychiatry";
+
+      // Determine evidence level
+      let evidenceLevel = "Systematic Review/Consensus";
+      if (
+        title.includes("meta-analysis") ||
+        abstract.includes("meta-analysis")
+      )
+        evidenceLevel = "Meta-analysis";
+      else if (
+        title.includes("systematic review") ||
+        abstract.includes("systematic review")
+      )
+        evidenceLevel = "Systematic Review";
+
+      const guideline: ClinicalGuideline = {
+        title: article.title,
+        organization: org,
+        year: year,
+        url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+        description: (article.abstract || "").substring(0, 200) + "...",
+        category: category,
+        evidence_level: evidenceLevel,
+      };
+
+      scoredGuidelines.push({ guideline, score: score.total });
+    }
+
     // Remove duplicates based on title similarity
-    const uniqueGuidelines = allGuidelines.filter(
-      (guideline, index, self) =>
+    const uniqueGuidelines = scoredGuidelines.filter(
+      (item, index, self) =>
         index ===
         self.findIndex(
           (g) =>
-            g.title.toLowerCase().replace(/[^\w\s]/g, "") ===
-            guideline.title.toLowerCase().replace(/[^\w\s]/g, ""),
+            g.guideline.title
+              .toLowerCase()
+              .replace(/[^\w\s]/g, "") ===
+            item.guideline.title.toLowerCase().replace(/[^\w\s]/g, ""),
         ),
     );
 
-    return uniqueGuidelines.slice(0, 15); // Increased limit to 15 results
+    // Sort by score descending and return top results
+    return uniqueGuidelines
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 15)
+      .map((item) => item.guideline);
   } catch (error) {
     console.error("Error searching clinical guidelines:", error);
     return [];
