@@ -1,16 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  getDrugByNDC,
-  getHealthIndicators,
-  searchDrugs,
-  searchPubMedArticles,
-  searchRxNormDrugs,
-  searchGoogleScholar,
-  getPubMedArticleByPMID,
-  searchClinicalGuidelines,
-  searchMedicalDatabases,
-  searchMedicalJournals,
   createErrorResponse,
   formatDrugSearchResults,
   formatDrugDetails,
@@ -23,7 +13,18 @@ import {
   formatRxNormDrugs,
   formatClinicalGuidelines,
   logSafetyWarnings,
+  searchDrugsCached,
+  getDrugByNDCCached,
+  getHealthIndicatorsCached,
+  searchPubMedArticlesCached,
+  getPubMedArticleByPMIDCached,
+  searchRxNormDrugsCached,
+  searchGoogleScholarCached,
+  searchClinicalGuidelinesCached,
+  searchMedicalDatabasesCached,
+  searchMedicalJournalsCached,
 } from "./utils.js";
+import { cacheManager } from "./cache/manager.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 const server = new McpServer({
@@ -56,8 +57,8 @@ server.tool(
   },
   async ({ query, limit }) => {
     try {
-      const drugs = await searchDrugs(query, limit);
-      return formatDrugSearchResults(drugs, query);
+      const result = await searchDrugsCached(query, limit);
+      return formatDrugSearchResults(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching drugs", error);
     }
@@ -72,8 +73,8 @@ server.tool(
   },
   async ({ ndc }) => {
     try {
-      const drug = await getDrugByNDC(ndc);
-      return formatDrugDetails(drug, ndc);
+      const result = await getDrugByNDCCached(ndc);
+      return formatDrugDetails(result.data, ndc, result.metadata);
     } catch (error: any) {
       return createErrorResponse("fetching drug details", error);
     }
@@ -104,8 +105,14 @@ server.tool(
   },
   async ({ indicator, country, limit }) => {
     try {
-      const indicators = await getHealthIndicators(indicator, country);
-      return formatHealthIndicators(indicators, indicator, country, limit);
+      const result = await getHealthIndicatorsCached(indicator, country, limit);
+      return formatHealthIndicators(
+        result.data,
+        indicator,
+        country,
+        limit,
+        result.metadata,
+      );
     } catch (error: any) {
       return createErrorResponse("fetching health statistics", error);
     }
@@ -128,8 +135,8 @@ server.tool(
   },
   async ({ query, max_results }) => {
     try {
-      const articles = await searchPubMedArticles(query, max_results);
-      return formatPubMedArticles(articles, query);
+      const result = await searchPubMedArticlesCached(query, max_results);
+      return formatPubMedArticles(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching medical literature", error);
     }
@@ -144,8 +151,8 @@ server.tool(
   },
   async ({ pmid }) => {
     try {
-      const article = await getPubMedArticleByPMID(pmid);
-      return formatArticleDetails(article, pmid);
+      const result = await getPubMedArticleByPMIDCached(pmid);
+      return formatArticleDetails(result.data, pmid, result.metadata);
     } catch (error: any) {
       return createErrorResponse("fetching article details", error);
     }
@@ -160,8 +167,8 @@ server.tool(
   },
   async ({ query }) => {
     try {
-      const drugs = await searchRxNormDrugs(query);
-      return formatRxNormDrugs(drugs, query);
+      const result = await searchRxNormDrugsCached(query);
+      return formatRxNormDrugs(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching RxNorm", error);
     }
@@ -178,8 +185,8 @@ server.tool(
   },
   async ({ query }) => {
     try {
-      const articles = await searchGoogleScholar(query);
-      return formatGoogleScholarArticles(articles, query);
+      const result = await searchGoogleScholarCached(query);
+      return formatGoogleScholarArticles(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching Google Scholar", error);
     }
@@ -202,22 +209,18 @@ server.tool(
   },
   async ({ query, organization }) => {
     try {
-      const guidelines = await searchClinicalGuidelines(query, organization);
-      return formatClinicalGuidelines(guidelines, query, organization);
+      const result = await searchClinicalGuidelinesCached(query, organization);
+      return formatClinicalGuidelines(
+        result.data,
+        query,
+        organization,
+        result.metadata,
+      );
     } catch (error: any) {
       return createErrorResponse("searching clinical guidelines", error);
     }
   },
 );
-
-// REMOVED: check-drug-interactions tool
-// This feature has been removed due to dangerous false negatives and inconsistent results.
-// The PubMed-based extraction approach cannot reliably detect critical drug interactions
-// (e.g., sildenafil + isosorbide mononitrate was incorrectly reported as "no interaction"
-// when it is absolutely contraindicated and can cause fatal hypotension).
-// False negatives are worse than no tool at all, as users may trust incorrect results.
-// If drug interaction checking is needed, it should use a proper drug interaction API
-// that understands drug classes and pharmacological mechanisms.
 
 // Enhanced Medical Database Search Tool
 server.tool(
@@ -232,8 +235,8 @@ server.tool(
   },
   async ({ query }) => {
     try {
-      const articles = await searchMedicalDatabases(query);
-      return formatMedicalDatabasesSearch(articles, query);
+      const result = await searchMedicalDatabasesCached(query);
+      return formatMedicalDatabasesSearch(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching medical databases", error);
     }
@@ -253,10 +256,42 @@ server.tool(
   },
   async ({ query }) => {
     try {
-      const articles = await searchMedicalJournals(query);
-      return formatMedicalJournalsSearch(articles, query);
+      const result = await searchMedicalJournalsCached(query);
+      return formatMedicalJournalsSearch(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching medical journals", error);
+    }
+  },
+);
+
+// Cache Statistics Tool
+server.tool(
+  "get-cache-stats",
+  "Get cache statistics including hit rate, total entries, and memory usage",
+  {},
+  async () => {
+    try {
+      const stats = cacheManager.getStats();
+      const statsText =
+        `**Cache Statistics**\n\n` +
+        `Total Entries: ${stats.totalEntries}\n` +
+        `Cache Hits: ${stats.hits}\n` +
+        `Cache Misses: ${stats.misses}\n` +
+        `Hit Rate: ${stats.hitRate}%\n` +
+        `Miss Rate: ${stats.missRate}%\n` +
+        `Memory Usage (estimate): ${(stats.memoryUsageEstimate / 1024 / 1024).toFixed(2)} MB\n` +
+        `${stats.oldestEntry ? `Oldest Entry: ${stats.oldestEntry.toISOString()}\n` : ""}` +
+        `${stats.newestEntry ? `Newest Entry: ${stats.newestEntry.toISOString()}\n` : ""}`;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: statsText,
+          },
+        ],
+      };
+    } catch (error: any) {
+      return createErrorResponse("fetching cache statistics", error);
     }
   },
 );

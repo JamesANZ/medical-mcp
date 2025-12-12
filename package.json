@@ -13,7 +13,9 @@
     "dev": "npm run build && npm run start",
     "dev:http": "npm run build && npm run start:http",
     "postinstall": "node scripts/postinstall.js",
-    "generate-cursor-link": "node scripts/generate-cursor-install-link.js"
+    "generate-cursor-link": "node scripts/generate-cursor-install-link.js",
+    "test": "node --test build/cache/manager.test.js",
+    "test:watch": "node --test --watch build/cache/manager.test.js"
   },
   "files": [
     "build",

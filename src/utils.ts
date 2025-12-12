@@ -18,11 +18,12 @@ import {
   USER_AGENT,
   WHO_API_BASE,
   GUIDELINE_PUBLICATION_TYPES,
-  GUIDELINE_MESH_TERMS,
   GUIDELINE_KEYWORDS,
   GUIDELINE_SCORE_WEIGHTS,
   ORG_EXTRACTION_PATTERNS,
 } from "./constants.js";
+import { cacheManager } from "./cache/manager.js";
+import { getCacheConfig } from "./cache/config.js";
 
 export function logSafetyWarnings() {
   // Add global safety warning
@@ -444,6 +445,19 @@ export function createMCPResponse(text: string) {
   };
 }
 
+/**
+ * Helper to append cache metadata to response text
+ */
+function appendCacheInfo(text: string, metadata?: CacheMetadata): string {
+  if (!metadata) return text;
+
+  const cacheInfo = metadata.cached
+    ? `\n\n*📦 Cached (${metadata.cacheAge}s old)*`
+    : `\n\n*🔄 Fresh API response*`;
+
+  return text + cacheInfo;
+}
+
 function formatArticleItem(article: any, index: number): string {
   let result = `${index + 1}. **${article.title}**\n`;
   if (article.authors) {
@@ -474,7 +488,11 @@ export function createErrorResponse(operation: string, error: any) {
   );
 }
 
-export function formatDrugSearchResults(drugs: any[], query: string) {
+export function formatDrugSearchResults(
+  drugs: any[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
   if (drugs.length === 0) {
     // Check if query might be invalid
     const commonWords = [
@@ -487,11 +505,17 @@ export function formatDrugSearchResults(drugs: any[], query: string) {
     ];
     if (commonWords.includes(query.toLowerCase().trim())) {
       return createMCPResponse(
-        `No drugs found for "${query}". This appears to be a generic term rather than a specific drug name. Please search for a specific medication name (e.g., "aspirin", "ibuprofen", "metformin").`,
+        appendCacheInfo(
+          `No drugs found for "${query}". This appears to be a generic term rather than a specific drug name. Please search for a specific medication name (e.g., "aspirin", "ibuprofen", "metformin").`,
+          metadata,
+        ),
       );
     }
     return createMCPResponse(
-      `No drugs found for "${query}". This medication may not be in the FDA database, or the name may be misspelled. Please verify the drug name and try again.`,
+      appendCacheInfo(
+        `No drugs found for "${query}". This medication may not be in the FDA database, or the name may be misspelled. Please verify the drug name and try again.`,
+        metadata,
+      ),
     );
   }
 
@@ -512,7 +536,7 @@ export function formatDrugSearchResults(drugs: any[], query: string) {
     result += `   Last Updated: ${drug.effective_time}\n\n`;
   });
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
 // Helper function to format a drug section
@@ -532,9 +556,15 @@ function formatDrugSection(
     .join("\n\n");
 }
 
-export function formatDrugDetails(drug: any, ndc: string) {
+export function formatDrugDetails(
+  drug: any,
+  ndc: string,
+  metadata?: CacheMetadata,
+) {
   if (!drug) {
-    return createMCPResponse(`No drug found with NDC: ${ndc}`);
+    return createMCPResponse(
+      appendCacheInfo(`No drug found with NDC: ${ndc}`, metadata),
+    );
   }
 
   let result = `**Drug Details for NDC: ${ndc}**\n\n`;
@@ -669,7 +699,7 @@ export function formatDrugDetails(drug: any, ndc: string) {
     result += `Basic information is displayed above. For more details, please consult the full FDA label or a healthcare provider.*\n\n`;
   }
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
 // Helper function to categorize indicators by type and get explanation
@@ -761,10 +791,14 @@ export function formatHealthIndicators(
   indicator: string,
   country?: string,
   limit: number = 10,
+  metadata?: CacheMetadata,
 ) {
   if (indicators.length === 0) {
     return createMCPResponse(
-      `No health indicators found for "${indicator}"${country ? ` in ${country}` : ""}. Try a different search term.`,
+      appendCacheInfo(
+        `No health indicators found for "${indicator}"${country ? ` in ${country}` : ""}. Try a different search term.`,
+        metadata,
+      ),
     );
   }
 
@@ -842,10 +876,14 @@ export function formatHealthIndicators(
     });
   }
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
-export function formatPubMedArticles(articles: any[], query: string) {
+export function formatPubMedArticles(
+  articles: any[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
   if (articles.length === 0) {
     return createMCPResponse(
       `No medical articles found for "${query}". Try different search terms or check the spelling.`,
@@ -879,10 +917,14 @@ export function formatPubMedArticles(articles: any[], query: string) {
     result += "\n";
   });
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
-export function formatGoogleScholarArticles(articles: any[], query: string) {
+export function formatGoogleScholarArticles(
+  articles: any[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
   if (articles.length === 0) {
     return createMCPResponse(
       `No academic articles found for "${query}". This could be due to no results matching your query, rate limiting, or network issues.`,
@@ -896,7 +938,7 @@ export function formatGoogleScholarArticles(articles: any[], query: string) {
     result += formatArticleItem(article, index);
   });
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
 function addDataNote(result: string) {
@@ -911,10 +953,17 @@ function addDataNote(result: string) {
   return result;
 }
 
-export function formatMedicalDatabasesSearch(articles: any[], query: string) {
+export function formatMedicalDatabasesSearch(
+  articles: any[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
   if (articles.length === 0) {
     return createMCPResponse(
-      `No medical articles found for "${query}" across any databases. This could be due to no results matching your query, database API rate limiting, or network connectivity issues.`,
+      appendCacheInfo(
+        `No medical articles found for "${query}" across any databases. This could be due to no results matching your query, database API rate limiting, or network connectivity issues.`,
+        metadata,
+      ),
     );
   }
 
@@ -934,13 +983,20 @@ export function formatMedicalDatabasesSearch(articles: any[], query: string) {
   result += `• ClinicalTrials.gov (Clinical trials)\n`;
   result = addDataNote(result);
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
-export function formatMedicalJournalsSearch(articles: any[], query: string) {
+export function formatMedicalJournalsSearch(
+  articles: any[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
   if (articles.length === 0) {
     return createMCPResponse(
-      `No articles found for "${query}" in top medical journals. This could be due to no results matching your query, journal-specific search limitations, or network connectivity issues.`,
+      appendCacheInfo(
+        `No articles found for "${query}" in top medical journals. This could be due to no results matching your query, journal-specific search limitations, or network connectivity issues.`,
+        metadata,
+      ),
     );
   }
 
@@ -961,12 +1017,18 @@ export function formatMedicalJournalsSearch(articles: any[], query: string) {
   result += `• Nature Medicine\n`;
   result = addDataNote(result);
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
-export function formatArticleDetails(article: any, pmid: string) {
+export function formatArticleDetails(
+  article: any,
+  pmid: string,
+  metadata?: CacheMetadata,
+) {
   if (!article) {
-    return createMCPResponse(`No article found with PMID: ${pmid}`);
+    return createMCPResponse(
+      appendCacheInfo(`No article found with PMID: ${pmid}`, metadata),
+    );
   }
 
   let result = `**Article Details for PMID: ${pmid}**\n\n`;
@@ -1001,10 +1063,14 @@ export function formatArticleDetails(article: any, pmid: string) {
     result += `You may need institutional access or subscription to view the complete article.\n\n`;
   }
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
-export function formatRxNormDrugs(drugs: any[], query: string) {
+export function formatRxNormDrugs(
+  drugs: any[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
   if (drugs.length === 0) {
     return createMCPResponse(
       `No drugs found in RxNorm database for "${query}". Try a different search term.`,
@@ -1025,17 +1091,21 @@ export function formatRxNormDrugs(drugs: any[], query: string) {
     result += "\n";
   });
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
 export function formatClinicalGuidelines(
   guidelines: any[],
   query: string,
   organization?: string,
+  metadata?: CacheMetadata,
 ) {
   if (guidelines.length === 0) {
     return createMCPResponse(
-      `No clinical guidelines found for "${query}"${organization ? ` from ${organization}` : ""}. Try a different search term or check if the condition has established guidelines.`,
+      appendCacheInfo(
+        `No clinical guidelines found for "${query}"${organization ? ` from ${organization}` : ""}. Try a different search term or check if the condition has established guidelines.`,
+        metadata,
+      ),
     );
   }
 
@@ -1057,7 +1127,7 @@ export function formatClinicalGuidelines(
     result += `   URL: ${guideline.url}\n\n`;
   });
 
-  return createMCPResponse(result);
+  return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
 export async function searchGoogleScholar(
@@ -2271,3 +2341,387 @@ export async function searchClinicalGuidelines(
 }
 
 // REMOVED: All drug interaction checking code has been removed
+
+// ============================================================================
+// CACHED WRAPPER FUNCTIONS
+// ============================================================================
+
+export interface CacheMetadata {
+  cached: boolean;
+  cacheAge: number; // seconds since cached
+}
+
+export interface CachedResult<T> {
+  data: T;
+  metadata: CacheMetadata;
+}
+
+const config = getCacheConfig();
+
+/**
+ * Helper to calculate cache age in seconds
+ */
+function getCacheAge(timestamp: Date): number {
+  return Math.floor((new Date().getTime() - timestamp.getTime()) / 1000);
+}
+
+// Cached version of searchDrugs
+export async function searchDrugsCached(
+  query: string,
+  limit: number = 10,
+): Promise<CachedResult<DrugLabel[]>> {
+  const cacheKey = cacheManager.generateKey("FDA", "search-drugs", {
+    query,
+    limit,
+  });
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchDrugs(query, limit);
+  cacheManager.set(cacheKey, data, config.ttls.fda, "FDA");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of getDrugByNDC
+export async function getDrugByNDCCached(
+  ndc: string,
+): Promise<CachedResult<DrugLabel | null>> {
+  const cacheKey = cacheManager.generateKey("FDA", "get-drug-details", {
+    ndc,
+  });
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await getDrugByNDC(ndc);
+  cacheManager.set(cacheKey, data, config.ttls.fda, "FDA");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of getHealthIndicators
+export async function getHealthIndicatorsCached(
+  indicatorName: string,
+  country?: string,
+  limit?: number,
+): Promise<CachedResult<WHOIndicator[]>> {
+  const cacheKey = cacheManager.generateKey("WHO", "get-health-statistics", {
+    indicator: indicatorName,
+    country,
+    limit,
+  });
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await getHealthIndicators(indicatorName, country);
+  cacheManager.set(cacheKey, data, config.ttls.who, "WHO");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchPubMedArticles
+export async function searchPubMedArticlesCached(
+  query: string,
+  maxResults: number = 10,
+): Promise<CachedResult<PubMedArticle[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "PubMed",
+    "search-medical-literature",
+    {
+      query,
+      max_results: maxResults,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchPubMedArticles(query, maxResults);
+  cacheManager.set(cacheKey, data, config.ttls.pubmed, "PubMed");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of getPubMedArticleByPMID
+export async function getPubMedArticleByPMIDCached(
+  pmid: string,
+): Promise<CachedResult<PubMedArticle | null>> {
+  const cacheKey = cacheManager.generateKey("PubMed", "get-article-details", {
+    pmid,
+  });
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await getPubMedArticleByPMID(pmid);
+  cacheManager.set(cacheKey, data, config.ttls.pubmed, "PubMed");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchRxNormDrugs
+export async function searchRxNormDrugsCached(
+  query: string,
+): Promise<CachedResult<RxNormDrug[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "RxNorm",
+    "search-drug-nomenclature",
+    {
+      query,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchRxNormDrugs(query);
+  cacheManager.set(cacheKey, data, config.ttls.rxnorm, "RxNorm");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchGoogleScholar
+export async function searchGoogleScholarCached(
+  query: string,
+): Promise<CachedResult<GoogleScholarArticle[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "GoogleScholar",
+    "search-google-scholar",
+    {
+      query,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchGoogleScholar(query);
+  cacheManager.set(cacheKey, data, config.ttls.googleScholar, "GoogleScholar");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchClinicalGuidelines
+export async function searchClinicalGuidelinesCached(
+  query: string,
+  organization?: string,
+): Promise<CachedResult<ClinicalGuideline[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "ClinicalGuidelines",
+    "search-clinical-guidelines",
+    {
+      query,
+      organization,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchClinicalGuidelines(query, organization);
+  cacheManager.set(
+    cacheKey,
+    data,
+    config.ttls.clinicalGuidelines,
+    "ClinicalGuidelines",
+  );
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchMedicalDatabases
+export async function searchMedicalDatabasesCached(
+  query: string,
+): Promise<CachedResult<GoogleScholarArticle[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "MedicalDatabases",
+    "search-medical-databases",
+    {
+      query,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchMedicalDatabases(query);
+  // Use shortest TTL (PubMed/Google Scholar) for multi-source queries
+  cacheManager.set(
+    cacheKey,
+    data,
+    Math.min(config.ttls.pubmed, config.ttls.googleScholar),
+    "MedicalDatabases",
+  );
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchMedicalJournals
+export async function searchMedicalJournalsCached(
+  query: string,
+): Promise<CachedResult<GoogleScholarArticle[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "MedicalJournals",
+    "search-medical-journals",
+    {
+      query,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchMedicalJournals(query);
+  // Use shortest TTL (PubMed/Google Scholar) for multi-source queries
+  cacheManager.set(
+    cacheKey,
+    data,
+    Math.min(config.ttls.pubmed, config.ttls.googleScholar),
+    "MedicalJournals",
+  );
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
