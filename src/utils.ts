@@ -24,6 +24,7 @@ import {
 } from "./constants.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
+import { deduplicatePapers } from "./utils/deduplication.js";
 
 export function logSafetyWarnings() {
   // Add global safety warning
@@ -883,6 +884,11 @@ export function formatPubMedArticles(
   articles: any[],
   query: string,
   metadata?: CacheMetadata,
+  dedupStats?: {
+    totalResults: number;
+    uniqueResults: number;
+    duplicatesRemoved: number;
+  },
 ) {
   if (articles.length === 0) {
     return createMCPResponse(
@@ -891,7 +897,11 @@ export function formatPubMedArticles(
   }
 
   let result = `**Medical Literature Search: "${query}"**\n\n`;
-  result += `Found ${articles.length} article(s)\n\n`;
+  if (dedupStats && dedupStats.duplicatesRemoved > 0) {
+    result += `Found ${dedupStats.uniqueResults} unique article(s) from ${dedupStats.totalResults} total results (${dedupStats.duplicatesRemoved} duplicates removed)\n\n`;
+  } else {
+    result += `Found ${articles.length} article(s)\n\n`;
+  }
 
   articles.forEach((article, index) => {
     result += `${index + 1}. **${article.title}**\n`;
@@ -924,6 +934,11 @@ export function formatGoogleScholarArticles(
   articles: any[],
   query: string,
   metadata?: CacheMetadata,
+  dedupStats?: {
+    totalResults: number;
+    uniqueResults: number;
+    duplicatesRemoved: number;
+  },
 ) {
   if (articles.length === 0) {
     return createMCPResponse(
@@ -932,7 +947,11 @@ export function formatGoogleScholarArticles(
   }
 
   let result = `**Academic Research Search: "${query}"**\n\n`;
-  result += `Found ${articles.length} article(s)\n\n`;
+  if (dedupStats && dedupStats.duplicatesRemoved > 0) {
+    result += `Found ${dedupStats.uniqueResults} unique article(s) from ${dedupStats.totalResults} total results (${dedupStats.duplicatesRemoved} duplicates removed)\n\n`;
+  } else {
+    result += `Found ${articles.length} article(s)\n\n`;
+  }
 
   articles.forEach((article, index) => {
     result += formatArticleItem(article, index);
@@ -957,6 +976,11 @@ export function formatMedicalDatabasesSearch(
   articles: any[],
   query: string,
   metadata?: CacheMetadata,
+  dedupStats?: {
+    totalResults: number;
+    uniqueResults: number;
+    duplicatesRemoved: number;
+  },
 ) {
   if (articles.length === 0) {
     return createMCPResponse(
@@ -968,7 +992,11 @@ export function formatMedicalDatabasesSearch(
   }
 
   let result = `**Comprehensive Medical Database Search: "${query}"**\n\n`;
-  result += `Found ${articles.length} article(s) across multiple databases\n\n`;
+  if (dedupStats && dedupStats.duplicatesRemoved > 0) {
+    result += `Found ${dedupStats.uniqueResults} unique article(s) from ${dedupStats.totalResults} total results (${dedupStats.duplicatesRemoved} duplicates removed) across multiple databases\n\n`;
+  } else {
+    result += `Found ${articles.length} article(s) across multiple databases\n\n`;
+  }
 
   articles.forEach((article, index) => {
     result += formatArticleItem(article, index);
@@ -990,6 +1018,11 @@ export function formatMedicalJournalsSearch(
   articles: any[],
   query: string,
   metadata?: CacheMetadata,
+  dedupStats?: {
+    totalResults: number;
+    uniqueResults: number;
+    duplicatesRemoved: number;
+  },
 ) {
   if (articles.length === 0) {
     return createMCPResponse(
@@ -1001,7 +1034,11 @@ export function formatMedicalJournalsSearch(
   }
 
   let result = `**Top Medical Journals Search: "${query}"**\n\n`;
-  result += `Found ${articles.length} article(s) from top medical journals\n\n`;
+  if (dedupStats && dedupStats.duplicatesRemoved > 0) {
+    result += `Found ${dedupStats.uniqueResults} unique article(s) from ${dedupStats.totalResults} total results (${dedupStats.duplicatesRemoved} duplicates removed) from top medical journals\n\n`;
+  } else {
+    result += `Found ${articles.length} article(s) from top medical journals\n\n`;
+  }
 
   articles.forEach((article, index) => {
     result += formatArticleItem(article, index);
@@ -1130,6 +1167,36 @@ export function formatClinicalGuidelines(
   return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
+/**
+ * Extract DOI from various text sources
+ * @param textSources Array of text strings to search for DOI
+ * @returns DOI string if found, empty string otherwise
+ */
+function extractDOI(textSources: string[]): string {
+  const doiPatterns = [
+    /doi[:\s]+(10\.\d+\/[^\s]+)/i,
+    /doi[:\s]+([^\s]+)/i,
+    /(10\.\d+\/[^\s]+)/,
+  ];
+
+  for (const text of textSources) {
+    for (const pattern of doiPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        let doi = match[1].trim();
+        // Validate DOI format (starts with 10.)
+        if (doi.startsWith("10.")) {
+          // Clean up DOI (remove trailing punctuation)
+          doi = doi.replace(/[.,;:!?)\]]+$/, "");
+          return doi;
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
 export async function searchGoogleScholar(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
@@ -1230,7 +1297,7 @@ export async function searchGoogleScholar(
     }
 
     // Enhanced data extraction with better selectors
-    return await page.evaluate(() => {
+    const results = await page.evaluate(() => {
       const results: GoogleScholarArticle[] = [];
 
       // Multiple selector strategies for different Google Scholar layouts
@@ -1380,6 +1447,16 @@ export async function searchGoogleScholar(
             }
           }
 
+          // DOI extraction
+          const doiTextSources = [
+            element.textContent || "",
+            title,
+            authors,
+            abstract,
+            citations,
+          ];
+          const doi = extractDOI(doiTextSources);
+
           // Quality filter - only include substantial results
           if (title && title.length > 10 && title.length < 500) {
             results.push({
@@ -1390,6 +1467,7 @@ export async function searchGoogleScholar(
               year,
               citations: citations.substring(0, 100), // Limit citations length
               url: url.substring(0, 500), // Limit URL length
+              doi: doi || undefined, // Add DOI if found
             });
           }
         } catch (error) {
@@ -1400,6 +1478,10 @@ export async function searchGoogleScholar(
 
       return results;
     });
+
+    // Apply deduplication
+    const dedupResult = deduplicatePapers(results);
+    return dedupResult.papers as GoogleScholarArticle[];
   } catch (error) {
     console.error("Error scraping Google Scholar:", error);
     return [];
@@ -1436,6 +1518,7 @@ export async function searchMedicalDatabases(
         year: article.publication_date.split("-")[0],
         citations: "",
         url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+        doi: article.doi, // Preserve DOI from PubMed
       });
     });
   }
@@ -1455,18 +1538,10 @@ export async function searchMedicalDatabases(
     results.push(...searches[3].value);
   }
 
-  // Remove duplicates based on title similarity
-  const uniqueResults = results.filter(
-    (article, index, self) =>
-      index ===
-      self.findIndex(
-        (a) =>
-          a.title.toLowerCase().replace(/[^\w\s]/g, "") ===
-          article.title.toLowerCase().replace(/[^\w\s]/g, ""),
-      ),
-  );
+  // Apply comprehensive deduplication
+  const dedupResult = deduplicatePapers(results);
 
-  return uniqueResults.slice(0, 20); // Limit to 20 results
+  return dedupResult.papers.slice(0, 20) as GoogleScholarArticle[]; // Limit to 20 results
 }
 
 async function searchCochraneLibrary(
@@ -1633,7 +1708,9 @@ export async function searchMedicalJournals(
     }
   });
 
-  return results.slice(0, 15);
+  // Apply deduplication
+  const dedupResult = deduplicatePapers(results);
+  return dedupResult.papers.slice(0, 15) as GoogleScholarArticle[];
 }
 
 async function searchJournal(
@@ -1827,7 +1904,11 @@ export async function searchPubMedArticles(
     );
 
     // Combine articles with full text and those without
-    return [...articlesWithFullText, ...articles.slice(3)];
+    const allArticles = [...articlesWithFullText, ...articles.slice(3)];
+
+    // Apply deduplication
+    const dedupResult = deduplicatePapers(allArticles);
+    return dedupResult.papers as PubMedArticle[];
   } catch (error) {
     console.error("Error searching PubMed:", error);
     return [];

@@ -66,6 +66,7 @@ export type GoogleScholarArticle = {
   url?: string;
   pdf_url?: string;
   related_articles?: string[];
+  doi?: string;
 };
 
 export type ClinicalGuideline = {
@@ -76,16 +77,6 @@ export type ClinicalGuideline = {
   description?: string;
   category?: string;
   evidence_level?: string;
-};
-
-export type DrugInteraction = {
-  drug1: string;
-  drug2: string;
-  severity: "Minor" | "Moderate" | "Major" | "Contraindicated";
-  description: string;
-  clinical_effects: string;
-  management: string;
-  evidence_level: string;
 };
 
 export interface GuidelineScore {
