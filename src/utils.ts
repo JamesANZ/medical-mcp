@@ -6,6 +6,9 @@ import {
   WHOIndicator,
   ClinicalGuideline,
   GuidelineScore,
+  PediatricGuideline,
+  PediatricJournalArticle,
+  ChildHealthIndicator,
 } from "./types.js";
 import superagent from "superagent";
 import puppeteer from "puppeteer";
@@ -21,6 +24,11 @@ import {
   GUIDELINE_KEYWORDS,
   GUIDELINE_SCORE_WEIGHTS,
   ORG_EXTRACTION_PATTERNS,
+  AAP_BRIGHT_FUTURES_BASE,
+  AAP_PUBLICATIONS_BASE,
+  PEDIATRIC_JOURNALS,
+  WHO_CHILD_HEALTH_INDICATORS,
+  PUPPETEER_LAUNCH_ARGS,
 } from "./constants.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
@@ -41,7 +49,7 @@ export function logSafetyWarnings() {
   console.error("");
   console.error("📊 DYNAMIC DATA SOURCE NOTICE:");
   console.error(
-    "This system queries live medical databases (FDA, WHO, PubMed, RxNorm)",
+    "This system queries live medical databases (FDA, WHO, PubMed, RxNorm, AAP, Bright Futures)",
   );
   console.error(
     "NO hardcoded medical data is used - all information is retrieved dynamically",
@@ -51,6 +59,14 @@ export function logSafetyWarnings() {
   );
   console.error(
     "Network connectivity required for all medical information retrieval",
+  );
+  console.error("");
+  console.error("👶 PEDIATRIC SOURCES:");
+  console.error(
+    "Pediatric-specific information is available from AAP, Bright Futures, and pediatric journals",
+  );
+  console.error(
+    "Pediatric drug information is filtered from FDA database for pediatric labeling",
   );
 }
 
@@ -1167,6 +1183,299 @@ export function formatClinicalGuidelines(
   return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
+export function formatBrightFuturesGuidelines(
+  guidelines: PediatricGuideline[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
+  if (guidelines.length === 0) {
+    return createMCPResponse(
+      appendCacheInfo(
+        `No Bright Futures guidelines found for "${query}". Try a different search term.`,
+        metadata,
+      ),
+    );
+  }
+
+  let result = `**Bright Futures Guidelines: "${query}"**\n\n`;
+  result += `Found ${guidelines.length} guideline(s)\n\n`;
+
+  guidelines.forEach((guideline, index) => {
+    result += `${index + 1}. **${guideline.title}**\n`;
+    result += `   Organization: ${guideline.organization}\n`;
+    if (guideline.age_group) {
+      result += `   Age Group: ${guideline.age_group}\n`;
+    }
+    if (guideline.category) {
+      result += `   Category: ${guideline.category}\n`;
+    }
+    if (guideline.description) {
+      result += `   Description: ${guideline.description}\n`;
+    }
+    result += `   URL: ${guideline.url}\n\n`;
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `Bright Futures guidelines are retrieved dynamically from the AAP website.\n\n`;
+  result = addDataNote(result);
+
+  return createMCPResponse(appendCacheInfo(result, metadata));
+}
+
+export function formatAAPPolicyStatements(
+  guidelines: PediatricGuideline[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
+  if (guidelines.length === 0) {
+    return createMCPResponse(
+      appendCacheInfo(
+        `No AAP policy statements found for "${query}". Try a different search term.`,
+        metadata,
+      ),
+    );
+  }
+
+  let result = `**AAP Policy Statements: "${query}"**\n\n`;
+  result += `Found ${guidelines.length} policy statement(s)\n\n`;
+
+  guidelines.forEach((guideline, index) => {
+    result += `${index + 1}. **${guideline.title}**\n`;
+    result += `   Organization: ${guideline.organization}\n`;
+    if (guideline.year) {
+      result += `   Year: ${guideline.year}\n`;
+    }
+    if (guideline.category) {
+      result += `   Category: ${guideline.category}\n`;
+    }
+    if (guideline.description) {
+      result += `   Description: ${guideline.description}\n`;
+    }
+    result += `   URL: ${guideline.url}\n\n`;
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `AAP policy statements are retrieved dynamically from the AAP publications website.\n\n`;
+  result = addDataNote(result);
+
+  return createMCPResponse(appendCacheInfo(result, metadata));
+}
+
+export function formatPediatricJournals(
+  articles: PediatricJournalArticle[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
+  if (articles.length === 0) {
+    return createMCPResponse(
+      appendCacheInfo(
+        `No pediatric journal articles found for "${query}". Try a different search term.`,
+        metadata,
+      ),
+    );
+  }
+
+  let result = `**Pediatric Journal Articles: "${query}"**\n\n`;
+  result += `Found ${articles.length} article(s) from major pediatric journals\n\n`;
+
+  articles.forEach((article, index) => {
+    result += `${index + 1}. **${article.title}**\n`;
+    result += `   Authors: ${article.authors.join(", ")}\n`;
+    result += `   Journal: ${article.journal}\n`;
+    result += `   Publication Date: ${article.publication_date}\n`;
+    result += `   PMID: ${article.pmid}\n`;
+    if (article.pmc_id) {
+      result += `   PMC ID: ${article.pmc_id} (Full text available)\n`;
+    }
+    if (article.abstract) {
+      result += `   Abstract: ${article.abstract.substring(0, 300)}${article.abstract.length > 300 ? "..." : ""}\n`;
+    }
+    result += `   URL: https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/\n`;
+    if (article.pmc_id) {
+      result += `   Full Text: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${article.pmc_id}/\n`;
+    }
+    result += "\n";
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `Pediatric journal articles are retrieved dynamically from PubMed.\n\n`;
+  result = addDataNote(result);
+
+  return createMCPResponse(appendCacheInfo(result, metadata));
+}
+
+export function formatChildHealthIndicators(
+  indicators: ChildHealthIndicator[],
+  indicator: string,
+  country?: string,
+  metadata?: CacheMetadata,
+) {
+  if (indicators.length === 0) {
+    return createMCPResponse(
+      appendCacheInfo(
+        `No child health indicators found for "${indicator}"${country ? ` in ${country}` : ""}. Try a different search term.`,
+        metadata,
+      ),
+    );
+  }
+
+  let result = `**Child Health Statistics: ${indicator}**\n\n`;
+  if (country) {
+    result += `Country Filter: ${country}\n`;
+  }
+  result += `Found ${indicators.length} indicator(s)\n\n`;
+
+  indicators.forEach((ind, index) => {
+    result += `${index + 1}. **${ind.IndicatorName}**\n`;
+    result += `   Country: ${ind.SpatialDim}\n`;
+    result += `   Value: **${ind.Value}**\n`;
+    if (ind.AgeGroup) {
+      result += `   Age Group: ${ind.AgeGroup}\n`;
+    }
+    if (ind.Comments && ind.Comments !== "No additional context") {
+      result += `   Context: ${ind.Comments}\n`;
+    }
+    if (ind.Low && ind.High && ind.Low !== 0 && ind.High !== 0) {
+      result += `   Range: ${ind.Low} - ${ind.High}\n`;
+    }
+    result += `   Year: ${ind.TimeDim}\n`;
+    result += `   Indicator Code: ${ind.IndicatorCode}\n\n`;
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `Child health statistics are retrieved dynamically from WHO Global Health Observatory.\n\n`;
+  result = addDataNote(result);
+
+  return createMCPResponse(appendCacheInfo(result, metadata));
+}
+
+export function formatPediatricDrugs(
+  drugs: DrugLabel[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
+  if (drugs.length === 0) {
+    return createMCPResponse(
+      appendCacheInfo(
+        `No pediatric drugs found for "${query}". This may indicate the drug is not approved for pediatric use or lacks pediatric labeling information.`,
+        metadata,
+      ),
+    );
+  }
+
+  let result = `**Pediatric Drug Search: "${query}"**\n\n`;
+  result += `Found ${drugs.length} drug(s) with pediatric labeling\n\n`;
+
+  drugs.forEach((drug, index) => {
+    result += `${index + 1}. `;
+    if (drug.openfda?.brand_name && drug.openfda.brand_name.length > 0) {
+      result += `**${drug.openfda.brand_name[0]}**`;
+      if (drug.openfda?.generic_name && drug.openfda.generic_name.length > 0) {
+        result += ` (${drug.openfda.generic_name[0]})`;
+      }
+    } else if (
+      drug.openfda?.generic_name &&
+      drug.openfda.generic_name.length > 0
+    ) {
+      result += `**${drug.openfda.generic_name[0]}**`;
+    } else {
+      result += `**Drug ${index + 1}**`;
+    }
+    result += `\n`;
+
+    if (drug.purpose && drug.purpose.length > 0) {
+      result += `   Purpose: ${drug.purpose.join(", ")}\n`;
+    }
+
+    if (
+      drug.dosage_and_administration &&
+      drug.dosage_and_administration.length > 0
+    ) {
+      const dosage = drug.dosage_and_administration.join(" ");
+      // Extract pediatric-specific dosing if available
+      const pediatricDosing = dosage.match(
+        /(?:pediatric|child|infant|neonatal)[^.]*(?:\.|$)/i,
+      );
+      if (pediatricDosing) {
+        result += `   Pediatric Dosing: ${pediatricDosing[0].substring(0, 200)}...\n`;
+      }
+    }
+
+    if (drug.warnings && drug.warnings.length > 0) {
+      const warnings = drug.warnings.join(" ");
+      const pediatricWarnings = warnings.match(
+        /(?:pediatric|child|infant|neonatal)[^.]*(?:\.|$)/i,
+      );
+      if (pediatricWarnings) {
+        result += `   Pediatric Warnings: ${pediatricWarnings[0].substring(0, 200)}...\n`;
+      }
+    }
+
+    result += `   Effective Time: ${drug.effective_time}\n`;
+    result += "\n";
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `Pediatric drug information is retrieved dynamically from FDA database.\n\n`;
+  result = addDataNote(result);
+
+  return createMCPResponse(appendCacheInfo(result, metadata));
+}
+
+export function formatAAPGuidelines(
+  guidelines: PediatricGuideline[],
+  query: string,
+  metadata?: CacheMetadata,
+) {
+  if (guidelines.length === 0) {
+    return createMCPResponse(
+      appendCacheInfo(
+        `No AAP guidelines found for "${query}". Try a different search term.`,
+        metadata,
+      ),
+    );
+  }
+
+  // Separate by source
+  const brightFutures = guidelines.filter((g) => g.source === "bright-futures");
+  const aapPolicy = guidelines.filter((g) => g.source === "aap-policy");
+
+  let result = `**AAP Guidelines Search: "${query}"**\n\n`;
+  result += `Found ${guidelines.length} guideline(s) total\n`;
+  if (brightFutures.length > 0) {
+    result += `- ${brightFutures.length} from Bright Futures\n`;
+  }
+  if (aapPolicy.length > 0) {
+    result += `- ${aapPolicy.length} from AAP Policy Statements\n`;
+  }
+  result += "\n";
+
+  guidelines.forEach((guideline, index) => {
+    result += `${index + 1}. **${guideline.title}**\n`;
+    result += `   Source: ${guideline.source === "bright-futures" ? "Bright Futures" : "AAP Policy Statement"}\n`;
+    result += `   Organization: ${guideline.organization}\n`;
+    if (guideline.year) {
+      result += `   Year: ${guideline.year}\n`;
+    }
+    if (guideline.age_group) {
+      result += `   Age Group: ${guideline.age_group}\n`;
+    }
+    if (guideline.category) {
+      result += `   Category: ${guideline.category}\n`;
+    }
+    if (guideline.description) {
+      result += `   Description: ${guideline.description}\n`;
+    }
+    result += `   URL: ${guideline.url}\n\n`;
+  });
+
+  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
+  result += `AAP guidelines are retrieved dynamically from Bright Futures and AAP publications websites.\n\n`;
+  result = addDataNote(result);
+
+  return createMCPResponse(appendCacheInfo(result, metadata));
+}
+
 /**
  * Extract DOI from various text sources
  * @param textSources Array of text strings to search for DOI
@@ -1555,19 +1864,7 @@ async function searchCochraneLibrary(
 
     browser = await puppeteer.launch({
       headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-        "--disable-web-security",
-        "--disable-features=VizDisplayCompositor",
-        "--disable-blink-features=AutomationControlled",
-        "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      ],
+      args: PUPPETEER_LAUNCH_ARGS,
     });
 
     const page = await browser.newPage();
@@ -2424,6 +2721,413 @@ export async function searchClinicalGuidelines(
 // REMOVED: All drug interaction checking code has been removed
 
 // ============================================================================
+// PEDIATRIC SOURCE FUNCTIONS
+// ============================================================================
+
+export async function searchBrightFuturesGuidelines(
+  query: string,
+): Promise<PediatricGuideline[]> {
+  let browser;
+  try {
+    console.log(`🔍 Scraping Bright Futures for: ${query}`);
+
+    await randomDelay(1000, 3000);
+
+    browser = await puppeteer.launch({
+      headless: true,
+      args: PUPPETEER_LAUNCH_ARGS,
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    );
+
+    // Search Bright Futures
+    const searchUrl = `${AAP_BRIGHT_FUTURES_BASE}/Search?q=${encodeURIComponent(query)}`;
+    await page.goto(searchUrl, { waitUntil: "networkidle2", timeout: 30000 });
+
+    return await page.evaluate(() => {
+      const results: PediatricGuideline[] = [];
+      const items = document.querySelectorAll(
+        ".search-result, .result-item, .guideline-item, article, .content-item",
+      );
+
+      items.forEach((item) => {
+        const titleElement = item.querySelector("h2, h3, .title, a.title");
+        const title = titleElement?.textContent?.trim() || "";
+        const urlElement = item.querySelector("a");
+        const url = urlElement?.href || "";
+
+        const descriptionElement = item.querySelector(
+          ".description, .summary, .abstract, p",
+        );
+        const description = descriptionElement?.textContent?.trim() || "";
+
+        // Try to extract age group
+        const ageGroupMatch = title.match(
+          /(\d+\s*(?:-|\s*to\s*)\s*\d+\s*(?:months?|years?|days?)|infant|toddler|preschool|school-age|adolescent)/i,
+        );
+        const ageGroup = ageGroupMatch?.[0] || "";
+
+        if (title && title.length > 10) {
+          results.push({
+            title,
+            organization: "American Academy of Pediatrics",
+            url: url.startsWith("http")
+              ? url
+              : `https://brightfutures.aap.org${url}`,
+            description: description.substring(0, 300),
+            age_group: ageGroup,
+            category: "Preventive Care",
+            source: "bright-futures",
+          });
+        }
+      });
+
+      return results;
+    });
+  } catch (error) {
+    console.error("Error scraping Bright Futures:", error);
+    return [];
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+export async function searchAAPPolicyStatements(
+  query: string,
+): Promise<PediatricGuideline[]> {
+  let browser;
+  try {
+    console.log(`🔍 Scraping AAP Policy Statements for: ${query}`);
+
+    await randomDelay(1000, 3000);
+
+    browser = await puppeteer.launch({
+      headless: true,
+      args: PUPPETEER_LAUNCH_ARGS,
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    );
+
+    // Search AAP publications
+    const searchUrl = `${AAP_PUBLICATIONS_BASE}/search?q=${encodeURIComponent(query)}`;
+    await page.goto(searchUrl, { waitUntil: "networkidle2", timeout: 30000 });
+
+    return await page.evaluate(() => {
+      const results: PediatricGuideline[] = [];
+      const items = document.querySelectorAll(
+        ".search-result, .result-item, .article-item, article, .publication-item",
+      );
+
+      items.forEach((item) => {
+        const titleElement = item.querySelector("h2, h3, .title, a.title");
+        const title = titleElement?.textContent?.trim() || "";
+        const urlElement = item.querySelector("a");
+        const url = urlElement?.href || "";
+
+        const descriptionElement = item.querySelector(
+          ".description, .summary, .abstract, p",
+        );
+        const description = descriptionElement?.textContent?.trim() || "";
+
+        // Try to extract year
+        const yearMatch = title.match(/\b(19|20)\d{2}\b/);
+        const year = yearMatch?.[0] || "";
+
+        if (title && title.length > 10) {
+          results.push({
+            title,
+            organization: "American Academy of Pediatrics",
+            year,
+            url: url.startsWith("http")
+              ? url
+              : `https://publications.aap.org${url}`,
+            description: description.substring(0, 300),
+            category: "Policy Statement",
+            source: "aap-policy",
+          });
+        }
+      });
+
+      return results;
+    });
+  } catch (error) {
+    console.error("Error scraping AAP Policy Statements:", error);
+    return [];
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+export async function searchPediatricJournals(
+  query: string,
+  maxResults: number = 10,
+): Promise<PediatricJournalArticle[]> {
+  try {
+    // Build journal filter query
+    const journalFilters = PEDIATRIC_JOURNALS.map(
+      (journal) => `"${journal}"[Journal]`,
+    ).join(" OR ");
+
+    const fullQuery = `(${query}) AND (${journalFilters})`;
+
+    // Use existing searchPubMedArticles function with journal filter
+    const articles = await searchPubMedArticles(fullQuery, maxResults);
+
+    // Convert to PediatricJournalArticle format
+    return articles.map((article) => ({
+      pmid: article.pmid,
+      title: article.title,
+      abstract: article.abstract,
+      authors: article.authors,
+      journal: article.journal,
+      publication_date: article.publication_date,
+      doi: article.doi,
+      pmc_id: article.pmc_id,
+      full_text: article.full_text,
+    }));
+  } catch (error) {
+    console.error("Error searching pediatric journals:", error);
+    return [];
+  }
+}
+
+export async function getChildHealthIndicators(
+  indicator: string,
+  country?: string,
+  limit: number = 10,
+): Promise<ChildHealthIndicator[]> {
+  try {
+    // First, try to find indicators matching the query
+    let filter = `contains(IndicatorName, '${indicator.replace(/'/g, "''")}')`;
+
+    let response = await superagent
+      .get(`${WHO_API_BASE}/Indicator`)
+      .query({
+        $filter: filter,
+        $format: "json",
+      })
+      .set("User-Agent", USER_AGENT);
+
+    let indicators: WHOIndicator[] = response.body.value || [];
+
+    // If no results, try with child-specific terms
+    if (indicators.length === 0) {
+      const childTerms = [
+        "child",
+        "pediatric",
+        "infant",
+        "neonatal",
+        "under-five",
+      ];
+      for (const term of childTerms) {
+        filter = `contains(IndicatorName, '${term}')`;
+        response = await superagent
+          .get(`${WHO_API_BASE}/Indicator`)
+          .query({
+            $filter: filter,
+            $format: "json",
+          })
+          .set("User-Agent", USER_AGENT);
+
+        const termResults = response.body.value || [];
+        if (termResults.length > 0) {
+          indicators = termResults;
+          break;
+        }
+      }
+    }
+
+    // If still no results, try with specific child health indicator codes
+    if (indicators.length === 0) {
+      const childIndicators = await Promise.allSettled(
+        WHO_CHILD_HEALTH_INDICATORS.map(async (code) => {
+          const res = await superagent
+            .get(`${WHO_API_BASE}/Indicator`)
+            .query({
+              $filter: `IndicatorCode eq '${code}'`,
+              $format: "json",
+            })
+            .set("User-Agent", USER_AGENT);
+          return res.body.value || [];
+        }),
+      );
+
+      indicators = childIndicators
+        .filter((r) => r.status === "fulfilled")
+        .flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+    }
+
+    // Filter for child health indicators (age groups 0-18 years)
+    const childIndicators = indicators.filter((ind) => {
+      const name = ind.IndicatorName.toLowerCase();
+      return (
+        name.includes("child") ||
+        name.includes("pediatric") ||
+        name.includes("infant") ||
+        name.includes("neonatal") ||
+        name.includes("under-five") ||
+        name.includes("under 5") ||
+        name.includes("0-18") ||
+        name.includes("0 to 18") ||
+        name.includes("under-5")
+      );
+    });
+
+    // Now fetch actual data for each indicator (similar to getHealthIndicators)
+    const results: ChildHealthIndicator[] = [];
+
+    for (const indicator of childIndicators.slice(0, 3)) {
+      try {
+        const indicatorCode = indicator.IndicatorCode;
+        let dataFilter = "";
+        if (country) {
+          dataFilter = `SpatialDim eq '${country}'`;
+        }
+
+        const queryParams: any = {
+          $format: "json",
+          $top: limit,
+        };
+
+        if (dataFilter) {
+          queryParams.$filter = dataFilter;
+        }
+
+        const dataRes = await superagent
+          .get(`${WHO_API_BASE}/${indicatorCode}`)
+          .query(queryParams)
+          .set("User-Agent", USER_AGENT);
+
+        const dataValues = dataRes.body.value || [];
+
+        // Convert to ChildHealthIndicator format
+        dataValues.forEach((item: any) => {
+          results.push({
+            ...item,
+            AgeGroup: extractAgeGroup(indicator.IndicatorName),
+          });
+        });
+      } catch (error) {
+        console.error(
+          `Error fetching data for indicator ${indicator.IndicatorCode}:`,
+          error,
+        );
+      }
+    }
+
+    return results.slice(0, limit);
+  } catch (error) {
+    console.error("Error fetching child health indicators:", error);
+    return [];
+  }
+}
+
+function extractAgeGroup(indicatorName: string): string {
+  const agePatterns = [
+    /(\d+\s*(?:-|\s*to\s*)\s*\d+\s*(?:months?|years?|days?))/i,
+    /(infant|toddler|preschool|school-age|adolescent)/i,
+    /(under-five|under 5|under-five years)/i,
+    /(neonatal|newborn)/i,
+  ];
+
+  for (const pattern of agePatterns) {
+    const match = indicatorName.match(pattern);
+    if (match) {
+      return match[0];
+    }
+  }
+
+  return "0-18 years";
+}
+
+export async function searchPediatricDrugs(
+  query: string,
+  limit: number = 10,
+): Promise<DrugLabel[]> {
+  try {
+    // Search FDA drugs
+    const drugs = await searchDrugs(query, limit * 2); // Get more to filter
+
+    // Filter for pediatric labeling
+    const pediatricDrugs = drugs.filter((drug) => {
+      // Check purpose for pediatric indications
+      const purpose = drug.purpose?.join(" ").toLowerCase() || "";
+      const warnings = drug.warnings?.join(" ").toLowerCase() || "";
+      const dosage =
+        drug.dosage_and_administration?.join(" ").toLowerCase() || "";
+
+      const hasPediatricIndication =
+        purpose.includes("pediatric") ||
+        purpose.includes("child") ||
+        purpose.includes("infant") ||
+        purpose.includes("neonatal") ||
+        warnings.includes("pediatric") ||
+        warnings.includes("child") ||
+        dosage.includes("pediatric") ||
+        dosage.includes("child") ||
+        dosage.includes("pediatric dosing");
+
+      return hasPediatricIndication;
+    });
+
+    return pediatricDrugs.slice(0, limit);
+  } catch (error) {
+    console.error("Error searching pediatric drugs:", error);
+    return [];
+  }
+}
+
+export async function searchAAPGuidelines(
+  query: string,
+): Promise<PediatricGuideline[]> {
+  try {
+    // Search both Bright Futures and AAP Policy Statements in parallel
+    const [brightFutures, aapPolicy] = await Promise.allSettled([
+      searchBrightFuturesGuidelines(query),
+      searchAAPPolicyStatements(query),
+    ]);
+
+    const results: PediatricGuideline[] = [];
+
+    if (brightFutures.status === "fulfilled") {
+      results.push(...brightFutures.value);
+    }
+
+    if (aapPolicy.status === "fulfilled") {
+      results.push(...aapPolicy.value);
+    }
+
+    // Remove duplicates based on title similarity
+    const uniqueResults = results.filter(
+      (item, index, self) =>
+        index ===
+        self.findIndex(
+          (g) =>
+            g.title.toLowerCase().replace(/[^\w\s]/g, "") ===
+            item.title.toLowerCase().replace(/[^\w\s]/g, ""),
+        ),
+    );
+
+    return uniqueResults;
+  } catch (error) {
+    console.error("Error searching AAP guidelines:", error);
+    return [];
+  }
+}
+
+// ============================================================================
 // CACHED WRAPPER FUNCTIONS
 // ============================================================================
 
@@ -2796,6 +3500,236 @@ export async function searchMedicalJournalsCached(
     data,
     Math.min(config.ttls.pubmed, config.ttls.googleScholar),
     "MedicalJournals",
+  );
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchBrightFuturesGuidelines
+export async function searchBrightFuturesGuidelinesCached(
+  query: string,
+): Promise<CachedResult<PediatricGuideline[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "BrightFutures",
+    "search-bright-futures",
+    {
+      query,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchBrightFuturesGuidelines(query);
+  cacheManager.set(cacheKey, data, config.ttls.brightFutures, "BrightFutures");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchAAPPolicyStatements
+export async function searchAAPPolicyStatementsCached(
+  query: string,
+): Promise<CachedResult<PediatricGuideline[]>> {
+  const cacheKey = cacheManager.generateKey("AAPPolicy", "search-aap-policy", {
+    query,
+  });
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchAAPPolicyStatements(query);
+  cacheManager.set(cacheKey, data, config.ttls.aapPolicy, "AAPPolicy");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchPediatricJournals
+export async function searchPediatricJournalsCached(
+  query: string,
+  maxResults: number = 10,
+): Promise<CachedResult<PediatricJournalArticle[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "PediatricJournals",
+    "search-pediatric-journals",
+    {
+      query,
+      maxResults,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchPediatricJournals(query, maxResults);
+  cacheManager.set(
+    cacheKey,
+    data,
+    config.ttls.pediatricJournals,
+    "PediatricJournals",
+  );
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of getChildHealthIndicators
+export async function getChildHealthIndicatorsCached(
+  indicator: string,
+  country?: string,
+  limit: number = 10,
+): Promise<CachedResult<ChildHealthIndicator[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "ChildHealth",
+    "get-child-health-indicators",
+    {
+      indicator,
+      country,
+      limit,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await getChildHealthIndicators(indicator, country, limit);
+  cacheManager.set(cacheKey, data, config.ttls.childHealth, "ChildHealth");
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchPediatricDrugs
+export async function searchPediatricDrugsCached(
+  query: string,
+  limit: number = 10,
+): Promise<CachedResult<DrugLabel[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "PediatricDrugs",
+    "search-pediatric-drugs",
+    {
+      query,
+      limit,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchPediatricDrugs(query, limit);
+  cacheManager.set(
+    cacheKey,
+    data,
+    config.ttls.pediatricDrugs,
+    "PediatricDrugs",
+  );
+
+  return {
+    data,
+    metadata: {
+      cached: false,
+      cacheAge: 0,
+    },
+  };
+}
+
+// Cached version of searchAAPGuidelines
+export async function searchAAPGuidelinesCached(
+  query: string,
+): Promise<CachedResult<PediatricGuideline[]>> {
+  const cacheKey = cacheManager.generateKey(
+    "AAPGuidelines",
+    "search-aap-guidelines",
+    {
+      query,
+    },
+  );
+  const cached = cacheManager.get(cacheKey);
+
+  if (cached) {
+    return {
+      data: cached.data,
+      metadata: {
+        cached: true,
+        cacheAge: getCacheAge(cached.timestamp),
+      },
+    };
+  }
+
+  const data = await searchAAPGuidelines(query);
+  // Use shorter TTL (AAP Policy) for combined queries
+  cacheManager.set(
+    cacheKey,
+    data,
+    Math.min(config.ttls.brightFutures, config.ttls.aapPolicy),
+    "AAPGuidelines",
   );
 
   return {

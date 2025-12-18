@@ -14,9 +14,9 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 
 - 🔒 **Your Data Never Leaves** – Runs 100% locally; no tracking, no logs, no cloud
 - 🆓 **No API Keys** – Works out of the box, zero configuration
-- 🏥 **Authoritative Sources** – FDA, WHO, PubMed, RxNorm, Google Scholar
+- 🏥 **Authoritative Sources** – FDA, WHO, PubMed, RxNorm, Google Scholar, AAP, pediatric journals
 - ⚡ **Easy Setup** – One-click install in [Cursor](https://cursor.sh) or simple manual setup
-- 🔬 **Comprehensive** – Drug info, health stats, medical literature, clinical guidelines
+- 🔬 **Comprehensive** – Drug info, health stats, medical literature, clinical guidelines, pediatric sources
 
 ## Quick Start
 
@@ -58,6 +58,14 @@ cd medical-mcp && npm install && npm run build
 ### 🏥 Clinical Tools
 
 - **`search-clinical-guidelines`** – Practice recommendations from medical organizations
+
+### 👶 Pediatric Sources
+
+- **`search-pediatric-guidelines`** – AAP guidelines and Bright Futures preventive care
+- **`search-pediatric-literature`** – Research from major pediatric journals (Pediatrics, JAMA Pediatrics, etc.)
+- **`get-child-health-statistics`** – Pediatric health indicators from WHO (mortality, immunization, nutrition)
+- **`search-pediatric-drugs`** – Drugs with pediatric labeling and dosing information
+- **`search-aap-guidelines`** – Comprehensive AAP guideline search (Bright Futures + Policy Statements)
 
 ### 📊 Cache Management
 
@@ -148,13 +156,15 @@ Find peer-reviewed research articles on any medical topic:
 
 ## Data Sources
 
-| Source             | Coverage                            | Update Frequency |
-| ------------------ | ----------------------------------- | ---------------- |
-| **FDA**            | All FDA-approved drugs (US)         | Real-time        |
-| **WHO**            | Global health stats (194 countries) | Annual           |
-| **PubMed**         | 30M+ medical citations              | Daily            |
-| **RxNorm**         | Standardized drug nomenclature (US) | Weekly           |
-| **Google Scholar** | Academic papers across disciplines  | Real-time        |
+| Source                 | Coverage                                                     | Update Frequency |
+| ---------------------- | ------------------------------------------------------------ | ---------------- |
+| **FDA**                | All FDA-approved drugs (US)                                  | Real-time        |
+| **WHO**                | Global health stats (194 countries)                          | Annual           |
+| **PubMed**             | 30M+ medical citations                                       | Daily            |
+| **RxNorm**             | Standardized drug nomenclature (US)                          | Weekly           |
+| **Google Scholar**     | Academic papers across disciplines                           | Real-time        |
+| **AAP**                | Bright Futures guidelines & policy statements                | Periodic         |
+| **Pediatric Journals** | Major pediatric journals (Pediatrics, JAMA Pediatrics, etc.) | Daily            |
 
 ## Security & Privacy
 
@@ -169,6 +179,7 @@ Find peer-reviewed research articles on any medical topic:
 - **Healthcare Developers** – Build prototypes with real medical data
 - **Students** – Access drug information and research papers
 - **Clinicians** – Reference tool for drug details and health statistics
+- **Pediatricians** – AAP guidelines, Bright Futures, pediatric literature, and child health data
 
 ## Caching
 
@@ -182,6 +193,11 @@ The server includes an in-memory caching layer to improve response times and red
   - RxNorm nomenclature: 30 days
   - Clinical guidelines: 7 days
   - Google Scholar: 1 hour
+  - Bright Futures: 30 days
+  - AAP Policy: 7 days
+  - Pediatric journals: 1 hour
+  - Child health indicators: 7 days
+  - Pediatric drugs: 24 hours
 - **Cache Management**: Automatic cleanup of expired entries every 5 minutes
 - **LRU Eviction**: Least recently used entries are evicted when cache exceeds 1000 entries
 - **Cache Statistics**: Use `get-cache-stats` tool to view hit rates and memory usage

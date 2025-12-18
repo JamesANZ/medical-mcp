@@ -88,3 +88,45 @@ export interface GuidelineScore {
   meshTerms: number; // +0.5 if has guideline-related MeSH terms
   total: number;
 }
+
+export type PediatricGuideline = {
+  title: string;
+  organization: string;
+  year?: string;
+  url: string;
+  description?: string;
+  age_group?: string;
+  category?: string;
+  source: "bright-futures" | "aap-policy";
+  screening_recommendations?: string[];
+};
+
+export type PediatricJournalArticle = {
+  pmid: string;
+  title: string;
+  abstract: string;
+  authors: string[];
+  journal: string;
+  publication_date: string;
+  doi?: string;
+  pmc_id?: string;
+  full_text?: string;
+};
+
+export type ChildHealthIndicator = {
+  IndicatorCode: string;
+  IndicatorName: string;
+  SpatialDimType: string;
+  SpatialDim: string;
+  TimeDim: string;
+  TimeDimType: string;
+  DataSourceDim: string;
+  DataSourceType: string;
+  Value: number;
+  NumericValue: number;
+  Low: number;
+  High: number;
+  Comments: string;
+  Date: string;
+  AgeGroup?: string;
+};

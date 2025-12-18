@@ -12,6 +12,12 @@ import {
   formatArticleDetails,
   formatRxNormDrugs,
   formatClinicalGuidelines,
+  formatBrightFuturesGuidelines,
+  formatAAPPolicyStatements,
+  formatPediatricJournals,
+  formatChildHealthIndicators,
+  formatPediatricDrugs,
+  formatAAPGuidelines,
   logSafetyWarnings,
   searchDrugsCached,
   getDrugByNDCCached,
@@ -23,6 +29,12 @@ import {
   searchClinicalGuidelinesCached,
   searchMedicalDatabasesCached,
   searchMedicalJournalsCached,
+  searchBrightFuturesGuidelinesCached,
+  searchAAPPolicyStatementsCached,
+  searchPediatricJournalsCached,
+  getChildHealthIndicatorsCached,
+  searchPediatricDrugsCached,
+  searchAAPGuidelinesCached,
 } from "./utils.js";
 import { cacheManager } from "./cache/manager.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -292,6 +304,159 @@ server.tool(
       };
     } catch (error: any) {
       return createErrorResponse("fetching cache statistics", error);
+    }
+  },
+);
+
+// Pediatric Source Tools
+server.tool(
+  "search-pediatric-guidelines",
+  "Search for pediatric guidelines from AAP (Bright Futures and Policy Statements)",
+  {
+    query: z
+      .string()
+      .describe(
+        "Medical condition or topic to search for pediatric guidelines",
+      ),
+    source: z
+      .enum(["bright-futures", "aap-policy", "all"])
+      .optional()
+      .default("all")
+      .describe(
+        "Source to search: 'bright-futures' for preventive care guidelines, 'aap-policy' for policy statements, or 'all' for both",
+      ),
+  },
+  async ({ query, source }) => {
+    try {
+      if (source === "bright-futures") {
+        const result = await searchBrightFuturesGuidelinesCached(query);
+        return formatBrightFuturesGuidelines(
+          result.data,
+          query,
+          result.metadata,
+        );
+      } else if (source === "aap-policy") {
+        const result = await searchAAPPolicyStatementsCached(query);
+        return formatAAPPolicyStatements(result.data, query, result.metadata);
+      } else {
+        const result = await searchAAPGuidelinesCached(query);
+        return formatAAPGuidelines(result.data, query, result.metadata);
+      }
+    } catch (error: any) {
+      return createErrorResponse("searching pediatric guidelines", error);
+    }
+  },
+);
+
+server.tool(
+  "search-pediatric-literature",
+  "Search for research articles in major pediatric journals (Pediatrics, JAMA Pediatrics, etc.)",
+  {
+    query: z
+      .string()
+      .describe(
+        "Medical topic or condition to search for in pediatric journals",
+      ),
+    max_results: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .default(10)
+      .describe("Maximum number of articles to return (max 20)"),
+  },
+  async ({ query, max_results }) => {
+    try {
+      const result = await searchPediatricJournalsCached(query, max_results);
+      return formatPediatricJournals(result.data, query, result.metadata);
+    } catch (error: any) {
+      return createErrorResponse("searching pediatric literature", error);
+    }
+  },
+);
+
+server.tool(
+  "get-child-health-statistics",
+  "Get pediatric health statistics and indicators from WHO Global Health Observatory",
+  {
+    indicator: z
+      .string()
+      .describe(
+        "Health indicator to search for (e.g., 'Child mortality', 'Infant mortality', 'Immunization')",
+      ),
+    country: z
+      .string()
+      .optional()
+      .describe("Country code (e.g., 'USA', 'GBR') - optional"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .default(10)
+      .describe("Number of results to return (max 20)"),
+  },
+  async ({ indicator, country, limit }) => {
+    try {
+      const result = await getChildHealthIndicatorsCached(
+        indicator,
+        country,
+        limit,
+      );
+      return formatChildHealthIndicators(
+        result.data,
+        indicator,
+        country,
+        result.metadata,
+      );
+    } catch (error: any) {
+      return createErrorResponse("fetching child health statistics", error);
+    }
+  },
+);
+
+server.tool(
+  "search-pediatric-drugs",
+  "Search for drugs with pediatric labeling and dosing information from FDA database",
+  {
+    query: z
+      .string()
+      .describe("Drug name to search for (brand name or generic name)"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .default(10)
+      .describe("Number of results to return (max 50)"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const result = await searchPediatricDrugsCached(query, limit);
+      return formatPediatricDrugs(result.data, query, result.metadata);
+    } catch (error: any) {
+      return createErrorResponse("searching pediatric drugs", error);
+    }
+  },
+);
+
+server.tool(
+  "search-aap-guidelines",
+  "Comprehensive search for AAP guidelines combining Bright Futures and Policy Statements",
+  {
+    query: z
+      .string()
+      .describe("Medical condition or topic to search for AAP guidelines"),
+  },
+  async ({ query }) => {
+    try {
+      const result = await searchAAPGuidelinesCached(query);
+      return formatAAPGuidelines(result.data, query, result.metadata);
+    } catch (error: any) {
+      return createErrorResponse("searching AAP guidelines", error);
     }
   },
 );

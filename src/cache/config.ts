@@ -11,6 +11,11 @@ export interface CacheConfig {
     rxnorm: number;
     clinicalGuidelines: number;
     googleScholar: number;
+    brightFutures: number;
+    aapPolicy: number;
+    pediatricJournals: number;
+    childHealth: number;
+    pediatricDrugs: number;
   };
 }
 
@@ -21,6 +26,11 @@ const DEFAULT_TTL_WHO = 604800; // 7 days
 const DEFAULT_TTL_RXNORM = 2592000; // 30 days
 const DEFAULT_TTL_CLINICAL_GUIDELINES = 604800; // 7 days
 const DEFAULT_TTL_GOOGLE_SCHOLAR = 3600; // 1 hour
+const DEFAULT_TTL_BRIGHT_FUTURES = 2592000; // 30 days (guidelines change infrequently)
+const DEFAULT_TTL_AAP_POLICY = 604800; // 7 days
+const DEFAULT_TTL_PEDIATRIC_JOURNALS = 3600; // 1 hour (same as PubMed)
+const DEFAULT_TTL_CHILD_HEALTH = 604800; // 7 days (same as WHO)
+const DEFAULT_TTL_PEDIATRIC_DRUGS = 86400; // 24 hours (same as FDA)
 
 // Default configuration values
 const DEFAULT_MAX_SIZE = 1000;
@@ -56,6 +66,29 @@ export function getCacheConfig(): CacheConfig {
       googleScholar: parseInt(
         process.env.CACHE_TTL_GOOGLE_SCHOLAR ||
           String(DEFAULT_TTL_GOOGLE_SCHOLAR),
+        10,
+      ),
+      brightFutures: parseInt(
+        process.env.CACHE_TTL_BRIGHT_FUTURES ||
+          String(DEFAULT_TTL_BRIGHT_FUTURES),
+        10,
+      ),
+      aapPolicy: parseInt(
+        process.env.CACHE_TTL_AAP_POLICY || String(DEFAULT_TTL_AAP_POLICY),
+        10,
+      ),
+      pediatricJournals: parseInt(
+        process.env.CACHE_TTL_PEDIATRIC_JOURNALS ||
+          String(DEFAULT_TTL_PEDIATRIC_JOURNALS),
+        10,
+      ),
+      childHealth: parseInt(
+        process.env.CACHE_TTL_CHILD_HEALTH || String(DEFAULT_TTL_CHILD_HEALTH),
+        10,
+      ),
+      pediatricDrugs: parseInt(
+        process.env.CACHE_TTL_PEDIATRIC_DRUGS ||
+          String(DEFAULT_TTL_PEDIATRIC_DRUGS),
         10,
       ),
     },
