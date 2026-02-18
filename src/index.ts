@@ -478,7 +478,6 @@ server.tool(
 async function runStdio(server: McpServer) {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // su stdio, meglio stderr (stdout può interferire con il protocollo)
   console.error("✅ Medical MCP Server running on stdio");
 }
 
@@ -516,7 +515,6 @@ async function runHttp(server: McpServer) {
 
 // main
 async function main() {
-  //const server = new McpServer({ name: "medical-mcp", version: "1.0.0" });
 
   const useHttp = process.argv.includes("--http");
   if (useHttp) return runHttp(server);
