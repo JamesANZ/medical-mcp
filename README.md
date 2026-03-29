@@ -18,6 +18,10 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 - ⚡ **Easy Setup** – One-click install in [Cursor](https://cursor.sh) or simple manual setup
 - 🔬 **Comprehensive** – Drug info, health stats, medical literature, clinical guidelines, pediatric sources
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/jamesanz-medical-mcp).
+
 ## Quick Start
 
 Ready to bring medical intelligence into your AI workflow? Install in seconds:
