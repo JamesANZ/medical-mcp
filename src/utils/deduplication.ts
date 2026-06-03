@@ -377,7 +377,7 @@ export function deduplicatePapers(papers: PaperLike[]): DeduplicationResult {
     if (!isDuplicate) {
       unique.push(paper);
     } else if (logRemoved) {
-      console.log(
+      console.error(
         `[DEDUP] Removed duplicate: "${paper.title}" - ${duplicateReason}`,
       );
     }

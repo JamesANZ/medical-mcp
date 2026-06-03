@@ -509,7 +509,7 @@ async function runHttp(server: McpServer) {
   });
 
   app.listen(port, host, () => {
-    console.log(`✅ Medical MCP Server (HTTP) on http://${host}:${port}/mcp`);
+    console.error(`✅ Medical MCP Server (HTTP) on http://${host}:${port}/mcp`);
   })
 }
 

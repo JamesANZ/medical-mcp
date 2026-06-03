@@ -214,7 +214,7 @@ class CacheManager {
     }
 
     if (keysToDelete.length > 0) {
-      console.log(
+      console.error(
         `🧹 Cache cleanup: Removed ${keysToDelete.length} expired entries`,
       );
     }
