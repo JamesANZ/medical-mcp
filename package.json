@@ -1,6 +1,6 @@
 {
   "name": "medical-mcp",
-  "version": "1.0.8",
+  "version": "2.1.0",
   "type": "module",
   "bin": {
     "medical-mcp": "./build/index.js"
@@ -45,6 +45,8 @@
   "description": "A Model Context Protocol (MCP) server that provides comprehensive medical information by querying multiple authoritative medical APIs including FDA, WHO, PubMed, and RxNorm.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "puppeteer": "^24.12.1",
     "superagent": "^10.2.2",
     "zod": "^3.25.75"

@@ -29,10 +29,39 @@ import {
   PEDIATRIC_JOURNALS,
   WHO_CHILD_HEALTH_INDICATORS,
   PUPPETEER_LAUNCH_ARGS,
+  NCBI_API_KEY,
 } from "./constants.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
 import { deduplicatePapers } from "./utils/deduplication.js";
+import { searchSemanticScholar } from "./utils/semantic-scholar.js";
+import { searchEuropePmc } from "./sources/adapters/europe-pmc.js";
+import { getRegisteredSourceHealth } from "./sources/health.js";
+import {
+  hasTinyFishKey,
+  searchTinyFish,
+} from "./sources/adapters/tinyfish-search.js";
+import { TINYFISH_API_KEY } from "./constants.js";
+import {
+  classifyEvidence,
+  formatEvidenceTag,
+} from "./utils/evidence-grading.js";
+import {
+  resilientCall,
+  CircuitOpenError,
+  getAllCircuitStatus,
+} from "./resilience/index.js";
+import { getAllRateLimiterStatus } from "./resilience/rate-limiter.js";
+import {
+  FDASearchResponseSchema,
+  PubMedSearchResponseSchema,
+  WHOIndicatorResponseSchema,
+  WHODataResponseSchema,
+  RxNormDrugGroupSchema,
+  ClinicalTrialsResponseSchema,
+  safeValidate,
+} from "./validation/schemas.js";
+import { logger } from "./logger.js";
 
 export function logSafetyWarnings() {
   // Add global safety warning
@@ -128,25 +157,31 @@ export async function searchDrugs(
 
   for (const searchQuery of searchQueries) {
     try {
-      const res = await superagent
-        .get(`${FDA_API_BASE}/drug/label.json`)
-        .query({
-          search: searchQuery,
-          limit: limit,
-        })
-        .set("User-Agent", USER_AGENT);
+      const res = await resilientCall("FDA", async () =>
+        superagent
+          .get(`${FDA_API_BASE}/drug/label.json`)
+          .query({
+            search: searchQuery,
+            limit: limit,
+          })
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 15_000, deadline: 30_000 }),
+      );
 
-      const results = res.body.results || [];
+      const validated = safeValidate(FDASearchResponseSchema, res.body, "FDA");
+      const results = validated.results || [];
       for (const drug of results) {
         const ndc = drug.openfda?.product_ndc?.[0];
         if (ndc && !seenNDCs.has(ndc)) {
           seenNDCs.add(ndc);
-          allResults.push(drug);
+          allResults.push(drug as DrugLabel);
           if (allResults.length >= limit) break;
         }
       }
       if (allResults.length >= limit) break;
     } catch (error) {
+      // If circuit is open, stop trying more queries for this source
+      if (error instanceof CircuitOpenError) break;
       // Continue to next search strategy
       continue;
     }
@@ -157,15 +192,19 @@ export async function searchDrugs(
 
 export async function getDrugByNDC(ndc: string): Promise<DrugLabel | null> {
   try {
-    const res = await superagent
-      .get(`${FDA_API_BASE}/drug/label.json`)
-      .query({
-        search: `openfda.product_ndc:${ndc}`,
-        limit: 1,
-      })
-      .set("User-Agent", USER_AGENT);
+    const res = await resilientCall("FDA", async () =>
+      superagent
+        .get(`${FDA_API_BASE}/drug/label.json`)
+        .query({
+          search: `openfda.product_ndc:${ndc}`,
+          limit: 1,
+        })
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
 
-    return res.body.results?.[0] || null;
+    const validated = safeValidate(FDASearchResponseSchema, res.body, "FDA");
+    return (validated.results?.[0] as DrugLabel) || null;
   } catch (error) {
     return null;
   }
@@ -179,15 +218,19 @@ export async function getHealthIndicators(
     // First, find the indicator code by searching for the indicator name
     let filter = `contains(IndicatorName, '${indicatorName}')`;
 
-    let res = await superagent
-      .get(`${WHO_API_BASE}/Indicator`)
-      .query({
-        $filter: filter,
-        $format: "json",
-      })
-      .set("User-Agent", USER_AGENT);
+    let res = await resilientCall("WHO", async () =>
+      superagent
+        .get(`${WHO_API_BASE}/Indicator`)
+        .query({
+          $filter: filter,
+          $format: "json",
+        })
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
 
-    let indicators = res.body.value || [];
+    let validated = safeValidate(WHOIndicatorResponseSchema, res.body, "WHO");
+    let indicators = validated.value || [];
 
     // If no results, try common variations
     if (indicators.length === 0) {
@@ -195,15 +238,24 @@ export async function getHealthIndicators(
       for (const variation of variations) {
         filter = `contains(IndicatorName, '${variation}')`;
 
-        res = await superagent
-          .get(`${WHO_API_BASE}/Indicator`)
-          .query({
-            $filter: filter,
-            $format: "json",
-          })
-          .set("User-Agent", USER_AGENT);
+        try {
+          res = await resilientCall("WHO", async () =>
+            superagent
+              .get(`${WHO_API_BASE}/Indicator`)
+              .query({
+                $filter: filter,
+                $format: "json",
+              })
+              .set("User-Agent", USER_AGENT)
+              .timeout({ response: 15_000, deadline: 30_000 }),
+          );
+        } catch (error) {
+          if (error instanceof CircuitOpenError) break;
+          continue;
+        }
 
-        const variationResults = res.body.value || [];
+        validated = safeValidate(WHOIndicatorResponseSchema, res.body, "WHO");
+        const variationResults = validated.value || [];
         if (variationResults.length > 0) {
           indicators = variationResults;
           break;
@@ -399,12 +451,16 @@ function getIndicatorVariations(indicatorName: string): string[] {
 
 export async function searchRxNormDrugs(query: string): Promise<RxNormDrug[]> {
   try {
-    const res = await superagent
-      .get(`${RXNAV_API_BASE}/drugs.json`)
-      .query({ name: query })
-      .set("User-Agent", USER_AGENT);
+    const res = await resilientCall("RxNorm", async () =>
+      superagent
+        .get(`${RXNAV_API_BASE}/drugs.json`)
+        .query({ name: query })
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
 
-    const drugGroup = res.body.drugGroup;
+    const validated = safeValidate(RxNormDrugGroupSchema, res.body, "RxNorm");
+    const drugGroup = validated.drugGroup;
     if (!drugGroup || !drugGroup.conceptGroup) {
       return [];
     }
@@ -477,6 +533,16 @@ function appendCacheInfo(text: string, metadata?: CacheMetadata): string {
 
 function formatArticleItem(article: any, index: number): string {
   let result = `${index + 1}. **${article.title}**\n`;
+
+  // Evidence grading (if we have enough text)
+  if (article.title) {
+    const evidence = classifyEvidence(article.title, article.abstract);
+    const evidenceStr = formatEvidenceTag(evidence);
+    if (evidenceStr) {
+      result += `   Evidence: ${evidenceStr}\n`;
+    }
+  }
+
   if (article.authors) {
     result += `   Authors: ${article.authors}\n`;
   }
@@ -920,7 +986,14 @@ export function formatPubMedArticles(
   }
 
   articles.forEach((article, index) => {
+    // Evidence grading
+    const evidence = classifyEvidence(article.title, article.abstract);
+    const evidenceStr = formatEvidenceTag(evidence);
+
     result += `${index + 1}. **${article.title}**\n`;
+    if (evidenceStr) {
+      result += `   Evidence: ${evidenceStr}\n`;
+    }
     result += `   Authors: ${article.authors.join(", ")}\n`;
     result += `   Journal: ${article.journal}\n`;
     result += `   Publication Date: ${article.publication_date}\n`;
@@ -1509,9 +1582,41 @@ function extractDOI(textSources: string[]): string {
 export async function searchGoogleScholar(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
+  if (hasTinyFishKey()) {
+    logger.info(
+      "GoogleScholar",
+      `Using TinyFish research_paper search for: ${query}`,
+    );
+    const tinyFish = await searchTinyFish(query, {
+      limit: 10,
+      extra: {
+        domainType: "research_paper",
+        purpose: "Find peer-reviewed medical and scientific papers",
+      },
+    });
+    if (tinyFish.length > 0) {
+      return tinyFish.map((item) => ({
+        title: item.title,
+        authors: item.authors,
+        abstract: item.abstract,
+        journal: item.journal,
+        year: item.year,
+        citations: item.citations,
+        url: item.url,
+        pdf_url: item.pdfUrl,
+        doi: item.doi,
+      }));
+    }
+    logger.warn(
+      "GoogleScholar",
+      "TinyFish returned no papers; falling back to Semantic Scholar.",
+    );
+    return searchSemanticScholar(query, 10);
+  }
+
   let browser;
   try {
-    console.error(`🔍 Scraping Google Scholar for: ${query}`);
+    logger.info("GoogleScholar", `Scraping Google Scholar for: ${query}`);
 
     // Add random delay to avoid rate limiting
     await randomDelay(2000, 5000);
@@ -1792,8 +1897,13 @@ export async function searchGoogleScholar(
     const dedupResult = deduplicatePapers(results);
     return dedupResult.papers as GoogleScholarArticle[];
   } catch (error) {
-    console.error("Error scraping Google Scholar:", error);
-    return [];
+    const errMsg = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      "GoogleScholar",
+      `Scraping failed: ${errMsg}. Falling back to Semantic Scholar.`,
+    );
+    // Fallback to Semantic Scholar API (free, reliable, no scraping)
+    return searchSemanticScholar(query, 10);
   } finally {
     if (browser) {
       await browser.close();
@@ -1804,20 +1914,34 @@ export async function searchGoogleScholar(
 export async function searchMedicalDatabases(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
-  console.error(`🔍 Searching medical databases for: ${query}`);
+  logger.info("MedicalDatabases", `Searching medical databases for: ${query}`);
 
-  // Try multiple medical databases in parallel
+  // Try multiple medical databases in parallel (including Semantic Scholar)
   const searches = await Promise.allSettled([
     searchPubMedArticles(query, 5),
     searchGoogleScholar(query),
     searchCochraneLibrary(query),
     searchClinicalTrials(query),
+    searchSemanticScholar(query, 5),
+    searchEuropePmc(query, { limit: 5 }),
   ]);
+
+  const sourceNames = [
+    "PubMed",
+    "GoogleScholar",
+    "Cochrane",
+    "ClinicalTrials",
+    "SemanticScholar",
+    "EuropePMC",
+  ];
+  const sourceResults: string[] = [];
 
   const results: GoogleScholarArticle[] = [];
 
   // Process PubMed results
   if (searches[0].status === "fulfilled" && searches[0].value) {
+    const count = searches[0].value.length;
+    sourceResults.push(`PubMed: ${count} results`);
     searches[0].value.forEach((article) => {
       results.push({
         title: article.title,
@@ -1830,22 +1954,65 @@ export async function searchMedicalDatabases(
         doi: article.doi, // Preserve DOI from PubMed
       });
     });
+  } else {
+    sourceResults.push(`PubMed: unavailable`);
   }
 
   // Process Google Scholar results
   if (searches[1].status === "fulfilled" && searches[1].value) {
+    sourceResults.push(`Google Scholar: ${searches[1].value.length} results`);
     results.push(...searches[1].value);
+  } else {
+    sourceResults.push(`Google Scholar: unavailable`);
   }
 
   // Process Cochrane Library results
   if (searches[2].status === "fulfilled" && searches[2].value) {
+    sourceResults.push(`Cochrane: ${searches[2].value.length} results`);
     results.push(...searches[2].value);
+  } else {
+    sourceResults.push(`Cochrane: unavailable`);
   }
 
   // Process Clinical Trials results
   if (searches[3].status === "fulfilled" && searches[3].value) {
+    sourceResults.push(`ClinicalTrials: ${searches[3].value.length} results`);
     results.push(...searches[3].value);
+  } else {
+    sourceResults.push(`ClinicalTrials: unavailable`);
   }
+
+  // Process Semantic Scholar results
+  if (searches[4].status === "fulfilled" && searches[4].value) {
+    sourceResults.push(`Semantic Scholar: ${searches[4].value.length} results`);
+    results.push(...searches[4].value);
+  } else {
+    sourceResults.push(`Semantic Scholar: unavailable`);
+  }
+
+  if (searches[5].status === "fulfilled" && searches[5].value) {
+    sourceResults.push(`Europe PMC: ${searches[5].value.length} results`);
+    results.push(
+      ...searches[5].value.map((item) => ({
+        title: item.title,
+        authors: item.authors,
+        abstract: item.abstract,
+        journal: item.journal,
+        year: item.year,
+        citations: item.citations,
+        url: item.url,
+        pdf_url: item.pdfUrl,
+        doi: item.doi,
+      })),
+    );
+  } else {
+    sourceResults.push(`Europe PMC: unavailable`);
+  }
+
+  logger.info(
+    "MedicalDatabases",
+    `Source results: ${sourceResults.join(", ")}`,
+  );
 
   // Apply comprehensive deduplication
   const dedupResult = deduplicatePapers(results);
@@ -1856,9 +2023,31 @@ export async function searchMedicalDatabases(
 async function searchCochraneLibrary(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
+  if (hasTinyFishKey()) {
+    const tinyFish = await searchTinyFish(query, {
+      limit: 8,
+      extra: {
+        domainType: "web",
+        includeDomains: "cochranelibrary.com",
+        purpose: "Find Cochrane systematic reviews",
+      },
+    });
+    if (tinyFish.length > 0) {
+      return tinyFish.map((item) => ({
+        title: item.title,
+        authors: item.authors,
+        abstract: item.abstract,
+        journal: item.journal || "Cochrane Database",
+        year: item.year,
+        citations: item.citations,
+        url: item.url,
+      }));
+    }
+  }
+
   let browser;
   try {
-    console.error(`🔍 Scraping Cochrane Library for: ${query}`);
+    logger.info("Cochrane", `Scraping Cochrane Library for: ${query}`);
 
     await randomDelay(1000, 3000);
 
@@ -1937,22 +2126,29 @@ async function searchClinicalTrials(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
   try {
-    console.error(`🔍 Searching ClinicalTrials.gov for: ${query}`);
+    logger.info("ClinicalTrials", `Searching ClinicalTrials.gov for: ${query}`);
 
-    const response = await superagent
-      .get("https://clinicaltrials.gov/api/v2/studies")
-      .query({
-        query: query,
-        format: "json",
-        limit: 10,
-      })
-      .set("User-Agent", USER_AGENT);
+    const response = await resilientCall("ClinicalTrials", async () =>
+      superagent
+        .get("https://clinicaltrials.gov/api/v2/studies")
+        .query({
+          query: query,
+          format: "json",
+          limit: 10,
+        })
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
 
-    const data = response.body;
+    const validated = safeValidate(
+      ClinicalTrialsResponseSchema,
+      response.body,
+      "ClinicalTrials",
+    );
     const results: GoogleScholarArticle[] = [];
 
-    if (data.studies && data.studies.length > 0) {
-      data.studies.forEach((study: any) => {
+    if (validated.studies && validated.studies.length > 0) {
+      validated.studies.forEach((study: any) => {
         const protocolSection = study.protocolSection;
         if (protocolSection) {
           const identificationModule = protocolSection.identificationModule;
@@ -1987,7 +2183,7 @@ async function searchClinicalTrials(
 export async function searchMedicalJournals(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
-  console.error(`🔍 Searching medical journals for: ${query}`);
+  logger.info("MedicalJournals", `Searching medical journals for: ${query}`);
 
   const journalSearches = await Promise.allSettled([
     searchJournal("NEJM", query),
@@ -2153,30 +2349,52 @@ export async function searchPubMedArticles(
   maxResults: number = 10,
 ): Promise<PubMedArticle[]> {
   try {
-    // First, search for article IDs
-    const searchRes = await superagent
-      .get(`${PUBMED_API_BASE}/esearch.fcgi`)
-      .query({
-        db: "pubmed",
-        term: query,
-        retmode: "json",
-        retmax: maxResults,
-      })
-      .set("User-Agent", USER_AGENT);
+    // Build query params with optional API key (3/sec → 10/sec)
+    const searchParams: Record<string, any> = {
+      db: "pubmed",
+      term: query,
+      retmode: "json",
+      retmax: maxResults,
+    };
+    if (NCBI_API_KEY) {
+      searchParams.api_key = NCBI_API_KEY;
+    }
 
-    const idList = searchRes.body.esearchresult?.idlist || [];
+    // First, search for article IDs
+    const searchRes = await resilientCall("PubMed", async () =>
+      superagent
+        .get(`${PUBMED_API_BASE}/esearch.fcgi`)
+        .query(searchParams)
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
+
+    const validated = safeValidate(
+      PubMedSearchResponseSchema,
+      searchRes.body,
+      "PubMed",
+    );
+    const idList = validated.esearchresult?.idlist || [];
 
     if (idList.length === 0) return [];
 
     // Then, fetch article details
-    const fetchRes = await superagent
-      .get(`${PUBMED_API_BASE}/efetch.fcgi`)
-      .query({
-        db: "pubmed",
-        id: idList.join(","),
-        retmode: "xml",
-      })
-      .set("User-Agent", USER_AGENT);
+    const fetchParams: Record<string, any> = {
+      db: "pubmed",
+      id: idList.join(","),
+      retmode: "xml",
+    };
+    if (NCBI_API_KEY) {
+      fetchParams.api_key = NCBI_API_KEY;
+    }
+
+    const fetchRes = await resilientCall("PubMed", async () =>
+      superagent
+        .get(`${PUBMED_API_BASE}/efetch.fcgi`)
+        .query(fetchParams)
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 20_000, deadline: 45_000 }),
+    );
 
     const articles = parsePubMedXML(fetchRes.text);
 
@@ -2339,14 +2557,22 @@ export async function getPubMedArticleByPMID(
   pmid: string,
 ): Promise<PubMedArticle | null> {
   try {
-    const fetchRes = await superagent
-      .get(`${PUBMED_API_BASE}/efetch.fcgi`)
-      .query({
-        db: "pubmed",
-        id: pmid,
-        retmode: "xml",
-      })
-      .set("User-Agent", USER_AGENT);
+    const fetchParams: Record<string, any> = {
+      db: "pubmed",
+      id: pmid,
+      retmode: "xml",
+    };
+    if (NCBI_API_KEY) {
+      fetchParams.api_key = NCBI_API_KEY;
+    }
+
+    const fetchRes = await resilientCall("PubMed", async () =>
+      superagent
+        .get(`${PUBMED_API_BASE}/efetch.fcgi`)
+        .query(fetchParams)
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
 
     const articles = parsePubMedXML(fetchRes.text);
     const article = articles[0] || null;
@@ -2492,32 +2718,55 @@ async function searchPubMed(
   maxResults: number = 20,
 ): Promise<PubMedArticle[]> {
   try {
-    const searchRes = await superagent
-      .get(`${PUBMED_API_BASE}/esearch.fcgi`)
-      .query({
-        db: "pubmed",
-        term: query,
-        retmode: "json",
-        retmax: maxResults,
-      })
-      .set("User-Agent", USER_AGENT);
+    const searchParams: Record<string, any> = {
+      db: "pubmed",
+      term: query,
+      retmode: "json",
+      retmax: maxResults,
+    };
+    if (NCBI_API_KEY) {
+      searchParams.api_key = NCBI_API_KEY;
+    }
 
-    const idList = searchRes.body.esearchresult?.idlist || [];
+    const searchRes = await resilientCall("PubMed", async () =>
+      superagent
+        .get(`${PUBMED_API_BASE}/esearch.fcgi`)
+        .query(searchParams)
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
+
+    const validated = safeValidate(
+      PubMedSearchResponseSchema,
+      searchRes.body,
+      "PubMed",
+    );
+    const idList = validated.esearchresult?.idlist || [];
     if (idList.length === 0) return [];
 
     // Fetch article details
-    const fetchRes = await superagent
-      .get(`${PUBMED_API_BASE}/efetch.fcgi`)
-      .query({
-        db: "pubmed",
-        id: idList.join(","),
-        retmode: "xml",
-      })
-      .set("User-Agent", USER_AGENT);
+    const fetchParams: Record<string, any> = {
+      db: "pubmed",
+      id: idList.join(","),
+      retmode: "xml",
+    };
+    if (NCBI_API_KEY) {
+      fetchParams.api_key = NCBI_API_KEY;
+    }
+
+    const fetchRes = await resilientCall("PubMed", async () =>
+      superagent
+        .get(`${PUBMED_API_BASE}/efetch.fcgi`)
+        .query(fetchParams)
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 20_000, deadline: 45_000 }),
+    );
 
     return parsePubMedXML(fetchRes.text);
   } catch (error) {
-    console.error(`Error searching PubMed with query: ${query}`, error);
+    logger.error("PubMed", `Error searching PubMed with query: ${query}`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return [];
   }
 }
@@ -2729,7 +2978,7 @@ export async function searchBrightFuturesGuidelines(
 ): Promise<PediatricGuideline[]> {
   let browser;
   try {
-    console.error(`🔍 Scraping Bright Futures for: ${query}`);
+    logger.info("BrightFutures", `Scraping Bright Futures for: ${query}`);
 
     await randomDelay(1000, 3000);
 
@@ -2803,7 +3052,7 @@ export async function searchAAPPolicyStatements(
 ): Promise<PediatricGuideline[]> {
   let browser;
   try {
-    console.error(`🔍 Scraping AAP Policy Statements for: ${query}`);
+    logger.info("AAPPolicy", `Scraping AAP Policy Statements for: ${query}`);
 
     await randomDelay(1000, 3000);
 
@@ -3738,5 +3987,150 @@ export async function searchAAPGuidelinesCached(
       cached: false,
       cacheAge: 0,
     },
+  };
+}
+
+// ============================================================================
+// HEALTH CHECK
+// ============================================================================
+
+export interface SourceHealthStatus {
+  source: string;
+  status: "healthy" | "degraded" | "down";
+  latencyMs?: number;
+  error?: string;
+}
+
+/**
+ * Ping each upstream source and report health status.
+ * Used by the health-check MCP tool.
+ */
+export async function getSourceHealth(): Promise<{
+  sources: SourceHealthStatus[];
+  circuitBreakers: ReturnType<typeof getAllCircuitStatus>;
+  rateLimiters: ReturnType<typeof getAllRateLimiterStatus>;
+  cache: ReturnType<typeof cacheManager.getStats>;
+  ncbiApiKey: boolean;
+  tinyfishApiKey: boolean;
+}> {
+  const checks: Array<{ name: string; fn: () => Promise<void> }> = [
+    {
+      name: "FDA",
+      fn: async () => {
+        await superagent
+          .get(`${FDA_API_BASE}/drug/label.json`)
+          .query({ search: 'openfda.brand_name:"aspirin"', limit: 1 })
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 10_000, deadline: 15_000 });
+      },
+    },
+    {
+      name: "PubMed",
+      fn: async () => {
+        const params: Record<string, any> = {
+          db: "pubmed",
+          term: "health",
+          retmode: "json",
+          retmax: 1,
+        };
+        if (NCBI_API_KEY) params.api_key = NCBI_API_KEY;
+        await superagent
+          .get(`${PUBMED_API_BASE}/esearch.fcgi`)
+          .query(params)
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 10_000, deadline: 15_000 });
+      },
+    },
+    {
+      name: "WHO",
+      fn: async () => {
+        await superagent
+          .get(`${WHO_API_BASE}/Indicator`)
+          .query({
+            $filter: "contains(IndicatorName, 'life')",
+            $format: "json",
+            $top: 1,
+          })
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 10_000, deadline: 15_000 });
+      },
+    },
+    {
+      name: "RxNorm",
+      fn: async () => {
+        await superagent
+          .get(`${RXNAV_API_BASE}/drugs.json`)
+          .query({ name: "aspirin" })
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 10_000, deadline: 15_000 });
+      },
+    },
+    {
+      name: "ClinicalTrials",
+      fn: async () => {
+        await superagent
+          .get("https://clinicaltrials.gov/api/v2/studies")
+          .query({ query: "health", format: "json", limit: 1 })
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 10_000, deadline: 15_000 });
+      },
+    },
+    {
+      name: "SemanticScholar",
+      fn: async () => {
+        await superagent
+          .get("https://api.semanticscholar.org/graph/v1/paper/search")
+          .query({ query: "health", limit: 1, fields: "title" })
+          .set("User-Agent", USER_AGENT)
+          .timeout({ response: 10_000, deadline: 15_000 });
+      },
+    },
+  ];
+
+  const results = await Promise.allSettled(
+    checks.map(async (check) => {
+      const start = Date.now();
+      try {
+        await check.fn();
+        return {
+          source: check.name,
+          status: "healthy" as const,
+          latencyMs: Date.now() - start,
+        };
+      } catch (error) {
+        const latencyMs = Date.now() - start;
+        return {
+          source: check.name,
+          status: (latencyMs > 8_000 ? "degraded" : "down") as
+            | "degraded"
+            | "down",
+          latencyMs,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
+
+  const sources: SourceHealthStatus[] = results.map((r) =>
+    r.status === "fulfilled"
+      ? r.value
+      : { source: "unknown", status: "down" as const, error: "check failed" },
+  );
+
+  const registered = await getRegisteredSourceHealth();
+  const seen = new Set(sources.map((source) => source.source));
+  for (const extra of registered) {
+    if (!seen.has(extra.source)) {
+      sources.push(extra);
+    }
+  }
+
+  return {
+    sources,
+    circuitBreakers: getAllCircuitStatus(),
+    rateLimiters: getAllRateLimiterStatus(),
+    cache: cacheManager.getStats(),
+    ncbiApiKey: !!NCBI_API_KEY,
+    tinyfishApiKey: !!TINYFISH_API_KEY,
   };
 }

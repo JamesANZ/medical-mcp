@@ -1,6 +1,6 @@
 # 🩺 Medical MCP Server
 
-> **Bring trusted medical data directly into your AI workflow.** A local server for private, free access to FDA, WHO, PubMed, RxNorm, and Google Scholar. No API keys. No data leaks.
+> **Bring trusted medical data directly into your AI workflow.** A local server for private, free access to FDA, WHO, PubMed, RxNorm, Semantic Scholar, and Google Scholar. No API keys. No data leaks.
 
 An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that brings authoritative medical information into AI coding environments like Cursor and Claude Desktop.
 
@@ -14,13 +14,25 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 
 - 🔒 **Your Data Never Leaves** – Runs 100% locally; no tracking, no logs, no cloud
 - 🆓 **No API Keys** – Works out of the box, zero configuration
-- 🏥 **Authoritative Sources** – FDA, WHO, PubMed, RxNorm, Google Scholar, AAP, pediatric journals
+- 🏥 **Authoritative Sources** – FDA, TGA, Health Canada, EMA, DailyMed, WHO, PubMed, Europe PMC, RxNorm, ClinicalTrials.gov
 - ⚡ **Easy Setup** – One-click install in [Cursor](https://cursor.sh) or simple manual setup
 - 🔬 **Comprehensive** – Drug info, health stats, medical literature, clinical guidelines, pediatric sources
+- 🛡️ **Resilient** – Circuit breakers, retry with backoff, rate limiting, and automatic fallbacks
+- 📊 **Evidence-Graded** – Results tagged with study type and evidence level (Meta-Analysis → Case Report)
+- 🏥 **Health Monitoring** – Built-in health check tool to diagnose source availability
+
+## What's New in v2.0
+
+- **Resilience Layer** – Circuit breakers per source, retry with exponential backoff + jitter, per-source token bucket rate limiters
+- **Semantic Scholar Fallback** – When Google Scholar scraping fails (CAPTCHAs, rate limits), automatically falls back to Semantic Scholar's free API (100 req/sec, no key)
+- **Evidence Grading** – PubMed and multi-database results tagged with study type (Systematic Review, RCT, Cohort, Case Report, etc.) and evidence grade (I–V)
+- **Response Validation** – Zod schemas validate all upstream API responses, logging warnings on schema drift without breaking
+- **NCBI API Key Support** – Optional `NCBI_API_KEY` env var boosts PubMed from 3 req/sec to 10 req/sec
+- **Health Check Tool** – `health-check` pings all upstream sources and reports latency, circuit breaker states, rate limiter status, and cache health
+- **Structured Logging** – Leveled, structured logging (DEBUG/INFO/WARN/ERROR) with source tracking and timing for every API call
+- **Request Timeouts** – All upstream calls have explicit response/deadline timeouts to prevent hanging
 
 ## Quick Start
-
-Ready to bring medical intelligence into your AI workflow? Install in seconds:
 
 **Install in Cursor (Recommended):**
 
@@ -39,9 +51,10 @@ cd medical-mcp && npm install && npm run build
 
 ### 💊 Drug Information
 
-- **`search-drugs`** – Search FDA database by brand or generic name
-- **`get-drug-details`** – Get comprehensive drug info by NDC code
+- **`search-drugs`** – Search FDA, DailyMed, TGA (Australia), Health Canada, and EMA. Filter with `countries` (`US`, `AU`, `CA`, `EU`)
+- **`get-drug-details`** – Get comprehensive US drug info by NDC code
 - **`search-drug-nomenclature`** – Standardized drug names via RxNorm
+- **`search-drug-safety`** – FDA FAERS adverse events, recalls, and shortages
 
 ### 📊 Health Statistics
 
@@ -49,26 +62,29 @@ cd medical-mcp && npm install && npm run build
 
 ### 🔬 Medical Literature
 
-- **`search-medical-literature`** – Search 30M+ PubMed articles
+- **`search-medical-literature`** – Search 30M+ PubMed articles (with evidence grading)
 - **`get-article-details`** – Detailed article info by PMID
-- **`search-google-scholar`** – Academic research with citations
-- **`search-medical-databases`** – Multi-database search (PubMed, Scholar, Cochrane, ClinicalTrials.gov)
+- **`search-google-scholar`** – Academic papers via TinyFish (`research_paper`) when `TINYFISH_API_KEY` is set; otherwise Puppeteer + Semantic Scholar fallback
+- **`search-medical-databases`** – Multi-database search (PubMed, Scholar, Semantic Scholar, Cochrane, ClinicalTrials.gov, Europe PMC)
 - **`search-medical-journals`** – Top journals (NEJM, JAMA, Lancet, BMJ, Nature Medicine)
 
 ### 🏥 Clinical Tools
 
 - **`search-clinical-guidelines`** – Practice recommendations from medical organizations
+- **`search-clinical-trials`** – ClinicalTrials.gov plus Australia/New Zealand location coverage
+- **`list-sources`** – Catalog of registered country sources and access types
 
 ### 👶 Pediatric Sources
 
 - **`search-pediatric-guidelines`** – AAP guidelines and Bright Futures preventive care
-- **`search-pediatric-literature`** – Research from major pediatric journals (Pediatrics, JAMA Pediatrics, etc.)
-- **`get-child-health-statistics`** – Pediatric health indicators from WHO (mortality, immunization, nutrition)
+- **`search-pediatric-literature`** – Research from major pediatric journals
+- **`get-child-health-statistics`** – Pediatric health indicators from WHO
 - **`search-pediatric-drugs`** – Drugs with pediatric labeling and dosing information
 - **`search-aap-guidelines`** – Comprehensive AAP guideline search (Bright Futures + Policy Statements)
 
-### 📊 Cache Management
+### 🛡️ Reliability & Monitoring
 
+- **`health-check`** – Ping all upstream sources, report latency/status, circuit breaker states, and cache health
 - **`get-cache-stats`** – View cache statistics (hit rate, memory usage, entry count)
 
 ## Installation
@@ -86,13 +102,10 @@ cursor://anysphere.cursor-deeplink/mcp/install?name=medical-mcp&config=eyJtZWRpY
 **Requirements:** Node.js 18+ and npm
 
 ```bash
-# Clone and build
 git clone https://github.com/JamesANZ/medical-mcp.git
 cd medical-mcp
 npm install
 npm run build
-
-# Run server
 npm start
 ```
 
@@ -100,7 +113,7 @@ npm start
 
 Add to `claude_desktop_config.json`:
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
@@ -108,7 +121,10 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "medical-mcp": {
       "command": "node",
-      "args": ["/absolute/path/to/medical-mcp/build/index.js"]
+      "args": ["/absolute/path/to/medical-mcp/build/index.js"],
+      "env": {
+        "NCBI_API_KEY": "your_optional_key_here"
+      }
     }
   }
 }
@@ -120,8 +136,6 @@ Restart Claude Desktop after configuration.
 
 ### Search for Drug Information
 
-Ask about a medication's uses, dosage, and safety information:
-
 ```json
 {
   "tool": "search-drugs",
@@ -129,98 +143,174 @@ Ask about a medication's uses, dosage, and safety information:
 }
 ```
 
-### Get Health Statistics
+### Search Medical Literature (with Evidence Grading)
 
-Retrieve global health indicators like life expectancy or mortality rates:
+Results now include evidence tags:
 
-```json
-{
-  "tool": "get-health-statistics",
-  "arguments": {
-    "indicator": "Life expectancy at birth (years)",
-    "country": "USA"
-  }
-}
+```
+1. Efficacy of COVID-19 Treatments: A Meta-Analysis
+   Evidence: [Systematic Review / Meta-Analysis • Grade I]
+   Authors: Smith J, Jones K...
+
+2. Randomized Trial of Remdesivir in Adults
+   Evidence: [Randomized Controlled Trial • Grade II]
+   Authors: Chen L, Wang M...
 ```
 
-### Search Medical Literature
-
-Find peer-reviewed research articles on any medical topic:
+### Run Health Check
 
 ```json
-{
-  "tool": "search-medical-literature",
-  "arguments": { "query": "COVID-19 treatment", "max_results": 10 }
-}
+{ "tool": "health-check", "arguments": {} }
 ```
+
+Returns:
+
+```
+✅ FDA: healthy (234ms)
+✅ PubMed: healthy (156ms)
+✅ WHO: healthy (890ms)
+✅ RxNorm: healthy (312ms)
+✅ ClinicalTrials: healthy (445ms)
+✅ SemanticScholar: healthy (189ms)
+
+NCBI API Key: ✅ Configured (10 req/sec PubMed)
+```
+
+## Architecture
+
+### Resilience Stack
+
+Every API call flows through a three-layer resilience stack:
+
+```
+Request → Rate Limiter → Circuit Breaker → Retry (with backoff) → Upstream API
+```
+
+- **Rate Limiter** — Per-source token bucket prevents exceeding API limits (PubMed: 3/sec without key, 10/sec with; FDA: 4/sec; Google Scholar: 0.2/sec)
+- **Circuit Breaker** — After 3 consecutive failures, the circuit opens for 60s, preventing cascade failures. Transitions: CLOSED → OPEN → HALF_OPEN → CLOSED
+- **Retry** — Exponential backoff with full jitter on transient failures (429, 5xx, network errors). Max 2 retries
+
+### Evidence Grading
+
+PubMed and multi-database results are automatically classified:
+
+| Grade | Study Type                        | Examples                                      |
+| ----- | --------------------------------- | --------------------------------------------- |
+| I     | Systematic Review / Meta-Analysis | Cochrane reviews, PRISMA studies              |
+| II    | Randomized Controlled Trial       | Double-blind placebo-controlled trials        |
+| III   | Cohort / Case-Control Study       | Prospective, retrospective, population-based  |
+| IV    | Case Report / Case Series         | Clinical case presentations                   |
+| V     | Expert Opinion / Editorial        | Commentaries, perspectives, narrative reviews |
+
+### Automatic Fallback
+
+When Google Scholar scraping fails (CAPTCHAs, rate limits, HTML changes), the server automatically falls back to **Semantic Scholar's API** — free, well-structured, 100 req/sec, no API key needed.
+
+### Response Validation
+
+All upstream API responses are validated against Zod schemas. If a source changes their API response format, the server logs a warning but continues operating with raw data — no crashes, just alerts.
 
 ## Data Sources
 
-| Source                 | Coverage                                                     | Update Frequency |
-| ---------------------- | ------------------------------------------------------------ | ---------------- |
-| **FDA**                | All FDA-approved drugs (US)                                  | Real-time        |
-| **WHO**                | Global health stats (194 countries)                          | Annual           |
-| **PubMed**             | 30M+ medical citations                                       | Daily            |
-| **RxNorm**             | Standardized drug nomenclature (US)                          | Weekly           |
-| **Google Scholar**     | Academic papers across disciplines                           | Real-time        |
-| **AAP**                | Bright Futures guidelines & policy statements                | Periodic         |
-| **Pediatric Journals** | Major pediatric journals (Pediatrics, JAMA Pediatrics, etc.) | Daily            |
+| Source                 | Coverage                            | Update Frequency | Resilience                         |
+| ---------------------- | ----------------------------------- | ---------------- | ---------------------------------- |
+| **FDA**                | US approved drug labels             | Real-time        | Circuit breaker + retry            |
+| **DailyMed**           | US structured product labels        | Daily            | Circuit breaker + retry            |
+| **TGA ARTG**           | Australian Register of Therapeutic Goods | Real-time   | Circuit breaker + retry            |
+| **Health Canada DPD**  | Canadian marketed/approved drugs    | Real-time        | Circuit breaker + retry            |
+| **EMA**                | EU centrally authorised medicines   | Twice daily JSON | In-memory cache + retry            |
+| **FDA FAERS / recalls / shortages** | US safety signals      | Real-time        | Circuit breaker + retry            |
+| **WHO**                | Global health stats (194 countries) | Annual           | Circuit breaker + retry            |
+| **PubMed**             | 30M+ medical citations              | Daily            | Circuit breaker + retry + NCBI key |
+| **Europe PMC**         | PubMed + preprints + patents        | Real-time        | Circuit breaker + retry            |
+| **RxNorm**             | Standardized drug nomenclature (US) | Weekly           | Circuit breaker + retry            |
+| **TinyFish Search**    | Research papers + domain-scoped web | Real-time        | Optional `TINYFISH_API_KEY`        |
+| **Semantic Scholar**   | 200M+ papers with citation data     | Real-time        | Circuit breaker + retry            |
+| **AAP**                | Bright Futures & policy statements  | Periodic         | Graceful degradation               |
+| **Pediatric Journals** | Major pediatric journals            | Daily            | Circuit breaker + retry            |
+| **ClinicalTrials.gov** | Global + AU/NZ location filter      | Real-time        | Circuit breaker + retry            |
+| **Cochrane**           | Systematic reviews                  | Real-time        | TinyFish first, then scrape        |
+
+## Configuration
+
+### Environment Variables
+
+**Performance & Reliability:**
+
+| Variable       | Default  | Description                                                                                            |
+| -------------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| `NCBI_API_KEY` | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/) |
+| `TINYFISH_API_KEY` | _(none)_ | Optional. When set, Scholar/Cochrane use TinyFish Search instead of Puppeteer. Search is free at $0 wallet. Get a key at [TinyFish](https://agent.tinyfish.ai/api-keys) |
+| `LOG_LEVEL`    | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                              |
+
+**Cache:**
+
+| Variable                   | Default   | Description                   |
+| -------------------------- | --------- | ----------------------------- |
+| `CACHE_ENABLED`            | `true`    | Enable/disable caching        |
+| `CACHE_MAX_SIZE`           | `1000`    | Maximum cache entries         |
+| `CACHE_TTL_FDA`            | `86400`   | FDA TTL in seconds (24h)      |
+| `CACHE_TTL_PUBMED`         | `3600`    | PubMed TTL (1h)               |
+| `CACHE_TTL_WHO`            | `604800`  | WHO TTL (7d)                  |
+| `CACHE_TTL_RXNORM`         | `2592000` | RxNorm TTL (30d)              |
+| `CACHE_TTL_GOOGLE_SCHOLAR` | `3600`    | Google Scholar TTL (1h)       |
+| `CACHE_TTL_BRIGHT_FUTURES` | `2592000` | Bright Futures TTL (30d)      |
+| `CACHE_TTL_AAP_POLICY`     | `604800`  | AAP Policy TTL (7d)           |
+| `CACHE_TTL_REGULATORS`     | `86400`   | TGA/EMA/Health Canada TTL     |
+| `CACHE_TTL_SAFETY`         | `3600`    | FAERS/recalls/shortages TTL   |
+| `CACHE_TTL_TRIALS`         | `3600`    | Clinical trial search TTL     |
+| `CACHE_CLEANUP_INTERVAL`   | `300000`  | Cleanup interval in ms (5min) |
+
+**Deduplication:**
+
+| Variable                     | Default | Description                               |
+| ---------------------------- | ------- | ----------------------------------------- |
+| `DEDUP_ENABLED`              | `true`  | Enable/disable cross-source deduplication |
+| `DEDUP_SIMILARITY_THRESHOLD` | `0.9`   | Fuzzy title match threshold (0.0–1.0)     |
+| `DEDUP_LOG_REMOVED`          | `false` | Log removed duplicates                    |
+
+**Performance**: Cached responses return in <10ms vs 800–1500ms for API calls. Expected hit rate: 60%+ for common queries.
 
 ## Security & Privacy
 
 - ✅ **Localhost-only** – Server runs locally, no external access
-- ✅ **No data storage** – All queries are real-time, nothing saved
+- ✅ **No data storage** – All queries are real-time, nothing saved to disk
 - ✅ **Process isolation** – Medical data stays on your machine
-- ✅ **No API keys** – No credentials to manage or leak
-
-## Use Cases
-
-- **Medical Researchers** – Quick literature reviews without paywalls
-- **Healthcare Developers** – Build prototypes with real medical data
-- **Students** – Access drug information and research papers
-- **Clinicians** – Reference tool for drug details and health statistics
-- **Pediatricians** – AAP guidelines, Bright Futures, pediatric literature, and child health data
-
-## Caching
-
-The server includes an in-memory caching layer to improve response times and reduce API calls:
-
-- **Automatic Caching**: All API responses are cached with source-specific TTL policies
-- **TTL Policies**:
-  - FDA data: 24 hours
-  - PubMed articles: 1 hour
-  - WHO statistics: 7 days
-  - RxNorm nomenclature: 30 days
-  - Clinical guidelines: 7 days
-  - Google Scholar: 1 hour
-  - Bright Futures: 30 days
-  - AAP Policy: 7 days
-  - Pediatric journals: 1 hour
-  - Child health indicators: 7 days
-  - Pediatric drugs: 24 hours
-- **Cache Management**: Automatic cleanup of expired entries every 5 minutes
-- **LRU Eviction**: Least recently used entries are evicted when cache exceeds 1000 entries
-- **Cache Statistics**: Use `get-cache-stats` tool to view hit rates and memory usage
-
-**Configuration** (via environment variables):
-
-- `CACHE_ENABLED=true` - Enable/disable caching (default: true)
-- `CACHE_MAX_SIZE=1000` - Maximum cache entries (default: 1000)
-- `CACHE_TTL_FDA=86400` - FDA TTL in seconds (default: 86400)
-- `CACHE_TTL_PUBMED=3600` - PubMed TTL in seconds (default: 3600)
-- `CACHE_TTL_WHO=604800` - WHO TTL in seconds (default: 604800)
-- `CACHE_TTL_RXNORM=2592000` - RxNorm TTL in seconds (default: 2592000)
-- `CACHE_CLEANUP_INTERVAL=300000` - Cleanup interval in milliseconds (default: 300000)
-
-**Performance**: Cached responses typically return in <10ms vs 800-1500ms for API calls. Expected cache hit rate: 60%+ for common queries.
+- ✅ **No API keys required** – Works without credentials (NCBI and TinyFish keys are optional)
 
 ## Technical Details
 
-**Built with:** Node.js, TypeScript, MCP SDK  
-**Dependencies:** `@modelcontextprotocol/sdk`, `superagent`, `puppeteer`, `zod`  
+**Built with:** Node.js, TypeScript, MCP SDK
+**Dependencies:** `@modelcontextprotocol/sdk`, `superagent`, `puppeteer`, `zod`, `express`, `cors`
 **Platforms:** macOS, Windows, Linux
 
-**Note:** Google Scholar access uses web scraping with rate limiting. Other sources use official APIs.
+**Source layout:**
+
+```
+src/
+├── index.ts                    # MCP tool definitions
+├── utils.ts                    # Core API functions + formatters
+├── constants.ts                # API URLs, config constants
+├── types.ts                    # TypeScript types
+├── logger.ts                   # Structured leveled logging
+├── cache/
+│   ├── config.ts               # TTL policies, env var support
+│   └── manager.ts              # In-memory LRU cache
+├── resilience/
+│   ├── index.ts                # Composed resilientCall()
+│   ├── circuit-breaker.ts      # Per-source circuit breaker
+│   ├── retry.ts                # Exponential backoff + jitter
+│   └── rate-limiter.ts         # Token bucket rate limiter
+├── validation/
+│   └── schemas.ts              # Zod schemas for API responses
+├── sources/                    # Country/source registry + adapters
+│   ├── adapters/               # FDA, TGA, Health Canada, EMA, DailyMed, FAERS, trials, TinyFish
+│   └── ...
+└── utils/
+    ├── deduplication.ts         # Cross-source paper dedup
+    ├── evidence-grading.ts      # Study type classification
+    └── semantic-scholar.ts      # Semantic Scholar API client
+```
 
 ## Medical Disclaimer
 

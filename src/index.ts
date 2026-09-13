@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   createErrorResponse,
-  formatDrugSearchResults,
   formatDrugDetails,
   formatHealthIndicators,
   formatPubMedArticles,
@@ -19,7 +18,6 @@ import {
   formatPediatricDrugs,
   formatAAPGuidelines,
   logSafetyWarnings,
-  searchDrugsCached,
   getDrugByNDCCached,
   getHealthIndicatorsCached,
   searchPubMedArticlesCached,
@@ -35,20 +33,33 @@ import {
   getChildHealthIndicatorsCached,
   searchPediatricDrugsCached,
   searchAAPGuidelinesCached,
+  getSourceHealth,
 } from "./utils.js";
 import { cacheManager } from "./cache/manager.js";
+import {
+  catalogSources,
+  searchDrugSafety,
+  searchInternationalDrugs,
+  searchInternationalTrials,
+} from "./sources/index.js";
+import {
+  formatClinicalTrials,
+  formatRegulatoryProducts,
+  formatSafetyEvents,
+  formatSourceCatalog,
+} from "./sources/format.js";
+import { TINYFISH_API_KEY } from "./constants.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 import express from "express";
 import cors from "cors";
 
-
 logSafetyWarnings();
 
 // get arguments
 function getArgValue(prefix: string): string | undefined {
-  const arg = process.argv.find(a => a.startsWith(prefix));
+  const arg = process.argv.find((a) => a.startsWith(prefix));
   if (!arg) return undefined;
   const [, value] = arg.split("=", 2);
   return value;
@@ -56,7 +67,7 @@ function getArgValue(prefix: string): string | undefined {
 
 const server = new McpServer({
   name: "medical-mcp",
-  version: "1.0.0",
+  version: "2.1.0",
   capabilities: {
     resources: {},
     tools: {},
@@ -66,7 +77,7 @@ const server = new McpServer({
 // MCP Tools
 server.tool(
   "search-drugs",
-  "Search for drug information using FDA database",
+  "Search national drug regulators (FDA, DailyMed, TGA, Health Canada, EMA). Defaults to US, AU, CA, and EU. Pass countries: [\"US\"] for FDA/DailyMed only.",
   {
     query: z
       .string()
@@ -78,14 +89,96 @@ server.tool(
       .max(50)
       .optional()
       .default(10)
-      .describe("Number of results to return (max 50)"),
+      .describe("Number of results to return per source (max 50)"),
+    countries: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Jurisdiction codes to search: US, AU, CA, EU. Defaults to all first-wave regulators.",
+      ),
+  },
+  async ({ query, limit, countries }) => {
+    try {
+      const result = await searchInternationalDrugs(query, limit, countries);
+      return formatRegulatoryProducts(
+        result.data.items,
+        query,
+        result.data.errors,
+        result.metadata,
+      );
+    } catch (error: any) {
+      return createErrorResponse("searching drugs", error);
+    }
+  },
+);
+
+server.tool(
+  "search-drug-safety",
+  "Search pharmacovigilance data: FDA FAERS adverse events, recalls, and drug shortages",
+  {
+    query: z.string().describe("Drug name to search for safety records"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(25)
+      .optional()
+      .default(10)
+      .describe("Number of results to return per safety source"),
   },
   async ({ query, limit }) => {
     try {
-      const result = await searchDrugsCached(query, limit);
-      return formatDrugSearchResults(result.data, query, result.metadata);
+      const result = await searchDrugSafety(query, limit);
+      return formatSafetyEvents(
+        result.data.items,
+        query,
+        result.data.errors,
+        result.metadata,
+      );
     } catch (error: any) {
-      return createErrorResponse("searching drugs", error);
+      return createErrorResponse("searching drug safety", error);
+    }
+  },
+);
+
+server.tool(
+  "search-clinical-trials",
+  "Search ClinicalTrials.gov plus Australia/New Zealand trials (ANZCTR via ClinicalTrials.gov location filters)",
+  {
+    query: z.string().describe("Condition, intervention, or drug to search"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(25)
+      .optional()
+      .default(10)
+      .describe("Number of results to return per registry"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const result = await searchInternationalTrials(query, limit);
+      return formatClinicalTrials(
+        result.data.items,
+        query,
+        result.data.errors,
+        result.metadata,
+      );
+    } catch (error: any) {
+      return createErrorResponse("searching clinical trials", error);
+    }
+  },
+);
+
+server.tool(
+  "list-sources",
+  "List registered medical data sources (country, domain, access type, whether an API key is required)",
+  {},
+  async () => {
+    try {
+      return formatSourceCatalog(catalogSources());
+    } catch (error: any) {
+      return createErrorResponse("listing sources", error);
     }
   },
 );
@@ -321,6 +414,73 @@ server.tool(
   },
 );
 
+// Health Check Tool
+server.tool(
+  "health-check",
+  "Check the health and availability of all upstream data sources (FDA, TGA, Health Canada, EMA, PubMed, WHO, RxNorm, ClinicalTrials, Semantic Scholar, TinyFish). Reports latency, circuit breaker states, and cache health.",
+  {},
+  async () => {
+    try {
+      const health = await getSourceHealth();
+
+      let text = `**Medical MCP Server Health Check**\n\n`;
+
+      // Source availability
+      text += `## Data Sources\n\n`;
+      const statusEmoji: Record<string, string> = {
+        healthy: "✅",
+        degraded: "⚠️",
+        down: "❌",
+      };
+      for (const source of health.sources) {
+        text += `${statusEmoji[source.status] || "❓"} **${source.source}**: ${source.status}`;
+        if (source.latencyMs !== undefined) {
+          text += ` (${source.latencyMs}ms)`;
+        }
+        if (source.error) {
+          text += ` — ${source.error}`;
+        }
+        text += `\n`;
+      }
+
+      // NCBI API key
+      text += `\n## Configuration\n\n`;
+      text += `NCBI API Key: ${health.ncbiApiKey ? "✅ Configured (10 req/sec PubMed)" : "❌ Not set (3 req/sec PubMed — set NCBI_API_KEY for 3x throughput)"}\n`;
+      text += `TinyFish API Key: ${health.tinyfishApiKey || TINYFISH_API_KEY ? "✅ Configured (Search/Fetch replace Puppeteer)" : "❌ Not set — Scholar/Cochrane still use Puppeteer + Semantic Scholar fallback"}\n`;
+
+      // Circuit breakers
+      if (health.circuitBreakers.length > 0) {
+        text += `\n## Circuit Breakers\n\n`;
+        for (const cb of health.circuitBreakers) {
+          const cbEmoji =
+            cb.state === "CLOSED"
+              ? "✅"
+              : cb.state === "HALF_OPEN"
+                ? "⚠️"
+                : "❌";
+          text += `${cbEmoji} **${cb.name}**: ${cb.state}`;
+          if (cb.failureCount > 0) {
+            text += ` (${cb.failureCount} failures)`;
+          }
+          text += `\n`;
+        }
+      }
+
+      // Cache
+      text += `\n## Cache\n\n`;
+      text += `Entries: ${health.cache.totalEntries}\n`;
+      text += `Hit Rate: ${health.cache.hitRate}%\n`;
+      text += `Memory: ${(health.cache.memoryUsageEstimate / 1024 / 1024).toFixed(2)} MB\n`;
+
+      return {
+        content: [{ type: "text" as const, text }],
+      };
+    } catch (error: any) {
+      return createErrorResponse("running health check", error);
+    }
+  },
+);
+
 // Pediatric Source Tools
 server.tool(
   "search-pediatric-guidelines",
@@ -490,36 +650,35 @@ async function runHttp(server: McpServer) {
 
   const host = process.env.HOST ?? "0.0.0.0";
   const port = Number(getArgValue("--port") ?? process.env.PORT ?? 3000);
-  
-  
+
   app.all("/mcp", async (req: any, res: any) => {
-    
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      await server.connect(transport);
-    
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+
     res.on("close", async () => {
-        try { await transport.close(); } catch {}
-        try { await server.close(); } catch {}
-      });
+      try {
+        await transport.close();
+      } catch {}
+      try {
+        await server.close();
+      } catch {}
+    });
 
-      await transport.handleRequest(req, res, req.body);
-
+    await transport.handleRequest(req, res, req.body);
   });
 
   app.listen(port, host, () => {
     console.error(`✅ Medical MCP Server (HTTP) on http://${host}:${port}/mcp`);
-  })
+  });
 }
 
 // main
 async function main() {
-
   const useHttp = process.argv.includes("--http");
   if (useHttp) return runHttp(server);
   return runStdio(server);
-  
 }
 
 main().catch((error) => {
