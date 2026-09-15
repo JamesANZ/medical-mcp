@@ -1,0 +1,23 @@
+/** MCP tools registered on this server. Keep in sync with `server.tool(...)` in index.ts. */
+export const MCP_TOOL_NAMES = [
+  "search-drugs",
+  "search-drug-safety",
+  "search-clinical-trials",
+  "list-sources",
+  "get-drug-details",
+  "get-health-statistics",
+  "search-medical-literature",
+  "get-article-details",
+  "search-drug-nomenclature",
+  "search-google-scholar",
+  "search-clinical-guidelines",
+  "search-medical-databases",
+  "search-medical-journals",
+  "get-cache-stats",
+  "health-check",
+  "search-pediatric-guidelines",
+  "search-pediatric-literature",
+  "get-child-health-statistics",
+  "search-pediatric-drugs",
+  "search-aap-guidelines",
+] as const;

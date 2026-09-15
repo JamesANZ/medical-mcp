@@ -1,9 +1,11 @@
+import { MCP_TOOL_NAMES } from "../mcp-tools.js";
 import type { CacheMetadata } from "./cached.js";
 import type {
   ClinicalTrial,
   FanoutError,
   RegulatoryProduct,
   SafetyEvent,
+  SourceCatalogRow,
 } from "./types.js";
 
 function createMCPResponse(text: string) {
@@ -62,26 +64,28 @@ export function formatRegulatoryProducts(
       bySource.set(item.source, list);
     }
     for (const [source, items] of bySource) {
-    text += `\n## ${country} — ${source}\n\n`;
-    items.forEach((item, index) => {
-      text += `${index + 1}. **${item.productName}**\n`;
-      if (item.activeIngredients.length > 0) {
-        text += `   Ingredients: ${item.activeIngredients.join(", ")}\n`;
-      }
-      if (item.status) text += `   Status: ${item.status}\n`;
-      if (item.identifier) {
-        text += `   ${item.identifier.type}: ${item.identifier.value}\n`;
-      }
-      if (item.sponsor) text += `   Sponsor: ${item.sponsor}\n`;
-      if (item.dosageForm) text += `   Form: ${item.dosageForm}\n`;
-      if (item.route) text += `   Route: ${item.route}\n`;
-      if (item.url) text += `   URL: ${item.url}\n`;
-      text += "\n";
-    });
+      text += `\n## ${country} — ${source}\n\n`;
+      items.forEach((item, index) => {
+        text += `${index + 1}. **${item.productName}**\n`;
+        if (item.activeIngredients.length > 0) {
+          text += `   Ingredients: ${item.activeIngredients.join(", ")}\n`;
+        }
+        if (item.status) text += `   Status: ${item.status}\n`;
+        if (item.identifier) {
+          text += `   ${item.identifier.type}: ${item.identifier.value}\n`;
+        }
+        if (item.sponsor) text += `   Sponsor: ${item.sponsor}\n`;
+        if (item.dosageForm) text += `   Form: ${item.dosageForm}\n`;
+        if (item.route) text += `   Route: ${item.route}\n`;
+        if (item.url) text += `   URL: ${item.url}\n`;
+        text += "\n";
+      });
     }
   }
 
-  return createMCPResponse(appendCacheInfo(appendErrors(text, errors), metadata));
+  return createMCPResponse(
+    appendCacheInfo(appendErrors(text, errors), metadata),
+  );
 }
 
 export function formatSafetyEvents(
@@ -109,7 +113,9 @@ export function formatSafetyEvents(
     text += "\n";
   });
 
-  return createMCPResponse(appendCacheInfo(appendErrors(text, errors), metadata));
+  return createMCPResponse(
+    appendCacheInfo(appendErrors(text, errors), metadata),
+  );
 }
 
 export function formatClinicalTrials(
@@ -146,23 +152,25 @@ export function formatClinicalTrials(
     text += "\n";
   });
 
-  return createMCPResponse(appendCacheInfo(appendErrors(text, errors), metadata));
+  return createMCPResponse(
+    appendCacheInfo(appendErrors(text, errors), metadata),
+  );
 }
 
-export function formatSourceCatalog(
-  rows: Array<{
-    id: string;
-    name: string;
-    country: string;
-    domain: string;
-    access: string;
-    requiresKey: boolean;
-  }>,
-) {
-  let text = `**Registered medical sources (${rows.length})**\n\n`;
+export function formatSourceCatalog(rows: SourceCatalogRow[]) {
+  let text = `**MCP tools on this server (${MCP_TOOL_NAMES.length})**\n\n`;
+  text += MCP_TOOL_NAMES.map((name) => `- \`${name}\``).join("\n");
+  text += `\n\n**Medical sources (${rows.length})**\n\n`;
+  text +=
+    "Full catalog of registry adapters and dedicated-tool sources. `search-drugs` fans out to the five regulators only. If a tool name below is missing from your client, reload/enable the medical-mcp server — these tools are registered on the server process.\n\n";
   for (const row of rows) {
     text += `- **${row.name}** (\`${row.id}\`) — ${row.country} / ${row.domain} / ${row.access}`;
     if (row.requiresKey) text += " [API key optional]";
+    if (!row.exposed) {
+      text += " — not directly exposed";
+    } else if (row.tools.length > 0) {
+      text += ` — tools: ${row.tools.map((tool) => `\`${tool}\``).join(", ")}`;
+    }
     text += "\n";
   }
   return createMCPResponse(text);

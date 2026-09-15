@@ -24,7 +24,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 ## What's New in v2.0
 
 - **Resilience Layer** – Circuit breakers per source, retry with exponential backoff + jitter, per-source token bucket rate limiters
-- **Semantic Scholar Fallback** – When Google Scholar scraping fails (CAPTCHAs, rate limits), automatically falls back to Semantic Scholar's free API (100 req/sec, no key)
+- **Monid web search** – Scholar, Cochrane, AAP, and PMC HTML go through Monid TinyFish (Tavily-style search/fetch). Semantic Scholar is the no-key fallback
 - **Evidence Grading** – PubMed and multi-database results tagged with study type (Systematic Review, RCT, Cohort, Case Report, etc.) and evidence grade (I–V)
 - **Response Validation** – Zod schemas validate all upstream API responses, logging warnings on schema drift without breaking
 - **NCBI API Key Support** – Optional `NCBI_API_KEY` env var boosts PubMed from 3 req/sec to 10 req/sec
@@ -64,7 +64,7 @@ cd medical-mcp && npm install && npm run build
 
 - **`search-medical-literature`** – Search 30M+ PubMed articles (with evidence grading)
 - **`get-article-details`** – Detailed article info by PMID
-- **`search-google-scholar`** – Academic papers via TinyFish (`research_paper`) when `TINYFISH_API_KEY` is set; otherwise Puppeteer + Semantic Scholar fallback
+- **`search-google-scholar`** – Academic papers via Monid TinyFish (`research_paper`) when `MONID_API_KEY` is set; otherwise Semantic Scholar
 - **`search-medical-databases`** – Multi-database search (PubMed, Scholar, Semantic Scholar, Cochrane, ClinicalTrials.gov, Europe PMC)
 - **`search-medical-journals`** – Top journals (NEJM, JAMA, Lancet, BMJ, Nature Medicine)
 
@@ -72,7 +72,7 @@ cd medical-mcp && npm install && npm run build
 
 - **`search-clinical-guidelines`** – Practice recommendations from medical organizations
 - **`search-clinical-trials`** – ClinicalTrials.gov plus Australia/New Zealand location coverage
-- **`list-sources`** – Catalog of registered country sources and access types
+- **`list-sources`** – Full catalog of registry adapters and dedicated-tool sources (WHO, PubMed, RxNorm, Scholar, Cochrane, AAP), including which MCP tool reaches each. This is not the `search-drugs` five-regulator fanout.
 
 ### 👶 Pediatric Sources
 
@@ -204,7 +204,7 @@ PubMed and multi-database results are automatically classified:
 
 ### Automatic Fallback
 
-When Google Scholar scraping fails (CAPTCHAs, rate limits, HTML changes), the server automatically falls back to **Semantic Scholar's API** — free, well-structured, 100 req/sec, no API key needed.
+When `MONID_API_KEY` is set, Scholar/Cochrane/AAP search and PMC HTML fetch go through **Monid TinyFish**. Without a key, Scholar falls back to **Semantic Scholar's API** — free, well-structured, 100 req/sec, no API key needed.
 
 ### Response Validation
 
@@ -212,24 +212,24 @@ All upstream API responses are validated against Zod schemas. If a source change
 
 ## Data Sources
 
-| Source                 | Coverage                            | Update Frequency | Resilience                         |
-| ---------------------- | ----------------------------------- | ---------------- | ---------------------------------- |
-| **FDA**                | US approved drug labels             | Real-time        | Circuit breaker + retry            |
-| **DailyMed**           | US structured product labels        | Daily            | Circuit breaker + retry            |
-| **TGA ARTG**           | Australian Register of Therapeutic Goods | Real-time   | Circuit breaker + retry            |
-| **Health Canada DPD**  | Canadian marketed/approved drugs    | Real-time        | Circuit breaker + retry            |
-| **EMA**                | EU centrally authorised medicines   | Twice daily JSON | In-memory cache + retry            |
-| **FDA FAERS / recalls / shortages** | US safety signals      | Real-time        | Circuit breaker + retry            |
-| **WHO**                | Global health stats (194 countries) | Annual           | Circuit breaker + retry            |
-| **PubMed**             | 30M+ medical citations              | Daily            | Circuit breaker + retry + NCBI key |
-| **Europe PMC**         | PubMed + preprints + patents        | Real-time        | Circuit breaker + retry            |
-| **RxNorm**             | Standardized drug nomenclature (US) | Weekly           | Circuit breaker + retry            |
-| **TinyFish Search**    | Research papers + domain-scoped web | Real-time        | Optional `TINYFISH_API_KEY`        |
-| **Semantic Scholar**   | 200M+ papers with citation data     | Real-time        | Circuit breaker + retry            |
-| **AAP**                | Bright Futures & policy statements  | Periodic         | Graceful degradation               |
-| **Pediatric Journals** | Major pediatric journals            | Daily            | Circuit breaker + retry            |
-| **ClinicalTrials.gov** | Global + AU/NZ location filter      | Real-time        | Circuit breaker + retry            |
-| **Cochrane**           | Systematic reviews                  | Real-time        | TinyFish first, then scrape        |
+| Source                              | Coverage                                 | Update Frequency | Resilience                         |
+| ----------------------------------- | ---------------------------------------- | ---------------- | ---------------------------------- |
+| **FDA**                             | US approved drug labels                  | Real-time        | Circuit breaker + retry            |
+| **DailyMed**                        | US structured product labels             | Daily            | Circuit breaker + retry            |
+| **TGA ARTG**                        | Australian Register of Therapeutic Goods | Real-time        | Circuit breaker + retry            |
+| **Health Canada DPD**               | Canadian marketed/approved drugs         | Real-time        | Circuit breaker + retry            |
+| **EMA**                             | EU centrally authorised medicines        | Twice daily JSON | In-memory cache + retry            |
+| **FDA FAERS / recalls / shortages** | US safety signals                        | Real-time        | Circuit breaker + retry            |
+| **WHO**                             | Global health stats (194 countries)      | Annual           | Circuit breaker + retry            |
+| **PubMed**                          | 30M+ medical citations                   | Daily            | Circuit breaker + retry + NCBI key |
+| **Europe PMC**                      | PubMed + preprints + patents             | Real-time        | Circuit breaker + retry            |
+| **RxNorm**                          | Standardized drug nomenclature (US)      | Weekly           | Circuit breaker + retry            |
+| **TinyFish via Monid**              | Research papers + domain-scoped web      | Real-time        | Optional `MONID_API_KEY`           |
+| **Semantic Scholar**                | 200M+ papers with citation data          | Real-time        | Circuit breaker + retry            |
+| **AAP**                             | Bright Futures & policy statements       | Periodic         | Graceful degradation               |
+| **Pediatric Journals**              | Major pediatric journals                 | Daily            | Circuit breaker + retry            |
+| **ClinicalTrials.gov**              | Global + AU/NZ location filter           | Real-time        | Circuit breaker + retry            |
+| **Cochrane**                        | Systematic reviews                       | Real-time        | Monid TinyFish search              |
 
 ## Configuration
 
@@ -237,11 +237,12 @@ All upstream API responses are validated against Zod schemas. If a source change
 
 **Performance & Reliability:**
 
-| Variable       | Default  | Description                                                                                            |
-| -------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `NCBI_API_KEY` | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/) |
-| `TINYFISH_API_KEY` | _(none)_ | Optional. When set, Scholar/Cochrane use TinyFish Search instead of Puppeteer. Search is free at $0 wallet. Get a key at [TinyFish](https://agent.tinyfish.ai/api-keys) |
-| `LOG_LEVEL`    | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                              |
+| Variable           | Default  | Description                                                                                                                                                                    |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NCBI_API_KEY`     | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)                                                                         |
+| `MONID_API_KEY`    | _(none)_ | Optional. When set, Scholar/Cochrane/AAP/PMC HTML use Monid's TinyFish search and fetch (Tavily-style web scraper). Get a key at [Monid](https://app.monid.ai/access/api-keys) |
+| `TINYFISH_API_KEY` | _(none)_ | Optional fallback if you call TinyFish directly instead of through Monid.                                                                                                      |
+| `LOG_LEVEL`        | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                                                                                                      |
 
 **Cache:**
 
@@ -276,12 +277,12 @@ All upstream API responses are validated against Zod schemas. If a source change
 - ✅ **Localhost-only** – Server runs locally, no external access
 - ✅ **No data storage** – All queries are real-time, nothing saved to disk
 - ✅ **Process isolation** – Medical data stays on your machine
-- ✅ **No API keys required** – Works without credentials (NCBI and TinyFish keys are optional)
+- ✅ **No API keys required** – Works without credentials (NCBI and Monid keys are optional)
 
 ## Technical Details
 
 **Built with:** Node.js, TypeScript, MCP SDK
-**Dependencies:** `@modelcontextprotocol/sdk`, `superagent`, `puppeteer`, `zod`, `express`, `cors`
+**Dependencies:** `@modelcontextprotocol/sdk`, `superagent`, `zod`, `express`, `cors`
 **Platforms:** macOS, Windows, Linux
 
 **Source layout:**

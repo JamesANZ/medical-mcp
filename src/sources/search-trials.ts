@@ -1,6 +1,7 @@
 import { getCacheConfig } from "../cache/config.js";
 import { cachedCall } from "./cached.js";
 import { fanoutSearch } from "./fanout.js";
+import { dedupeTrials } from "./query.js";
 import { registerDefaultSources } from "./register.js";
 import { listSources } from "./registry.js";
 import type { ClinicalTrial, SourceAdapter } from "./types.js";
@@ -16,6 +17,9 @@ export async function searchInternationalTrials(query: string, limit = 10) {
     "search-clinical-trials",
     { query, limit },
     ttl,
-    () => fanoutSearch(adapters, query, { limit }),
+    async () => {
+      const result = await fanoutSearch(adapters, query, { limit });
+      return { ...result, items: dedupeTrials(result.items) };
+    },
   );
 }

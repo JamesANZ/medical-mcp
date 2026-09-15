@@ -3,7 +3,14 @@ import { FDA_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
 import { timedHealthCheck } from "../http.js";
+import { openFdaAnyFieldAnd, tokenize } from "../query.js";
 import type { SafetyEvent, SearchOpts, SourceAdapter } from "../types.js";
+
+const FAERS_DRUG_FIELDS = [
+  "patient.drug.medicinalproduct",
+  "patient.drug.openfda.brand_name",
+  "patient.drug.openfda.generic_name",
+];
 
 type FaersEvent = {
   receiptdate?: string;
@@ -14,13 +21,32 @@ type FaersEvent = {
   };
 };
 
+function promoteQueryMatches(drugs: string[], query: string): string[] {
+  const tokens = tokenize(query).map((token) => token.toLowerCase());
+  if (tokens.length === 0) return drugs;
+  const matches: string[] = [];
+  const rest: string[] = [];
+  for (const drug of drugs) {
+    const lower = drug.toLowerCase();
+    if (tokens.some((token) => lower.includes(token))) {
+      matches.push(drug);
+    } else {
+      rest.push(drug);
+    }
+  }
+  return [...matches, ...rest];
+}
+
 export function mapFaersEvent(event: FaersEvent, query: string): SafetyEvent {
   const reactions = (event.patient?.reaction || [])
     .map((row) => row.reactionmeddrapt)
     .filter((name): name is string => Boolean(name));
-  const drugs = (event.patient?.drug || [])
-    .map((row) => row.medicinalproduct)
-    .filter((name): name is string => Boolean(name));
+  const drugs = promoteQueryMatches(
+    (event.patient?.drug || [])
+      .map((row) => row.medicinalproduct)
+      .filter((name): name is string => Boolean(name)),
+    query,
+  );
   return {
     source: "FDA FAERS",
     country: "US",
@@ -48,7 +74,8 @@ async function searchFaers(
       superagent
         .get(`${FDA_API_BASE}/drug/event.json`)
         .query({
-          search: `patient.drug.medicinalproduct:${query}`,
+          search: openFdaAnyFieldAnd(FAERS_DRUG_FIELDS, query),
+          sort: "receivedate:desc",
           limit,
         })
         .set("User-Agent", USER_AGENT)

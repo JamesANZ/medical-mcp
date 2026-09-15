@@ -3,6 +3,7 @@ import { FDA_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
 import { timedHealthCheck } from "../http.js";
+import { openFdaAnyFieldAnd } from "../query.js";
 import type { SafetyEvent, SearchOpts, SourceAdapter } from "../types.js";
 
 type Shortage = {
@@ -11,6 +12,10 @@ type Shortage = {
   status?: string;
   shortage_reason?: string;
   update_date?: string;
+  availability?: string;
+  related_info?: string;
+  company_name?: string;
+  presentation?: string;
 };
 
 export function mapShortage(row: Shortage): SafetyEvent {
@@ -22,7 +27,16 @@ export function mapShortage(row: Shortage): SafetyEvent {
     country: "US",
     kind: "shortage",
     title: row.proprietary_name || generic || "Drug shortage",
-    summary: [row.status, row.shortage_reason].filter(Boolean).join(" — "),
+    summary: [
+      row.status,
+      row.availability,
+      row.shortage_reason,
+      row.related_info,
+      row.company_name,
+      row.presentation,
+    ]
+      .filter(Boolean)
+      .join(" — "),
     date: row.update_date,
     url: "https://open.fda.gov/apis/drug/drugshortages/",
   };
@@ -38,7 +52,11 @@ async function searchShortages(
       superagent
         .get(`${FDA_API_BASE}/drug/shortages.json`)
         .query({
-          search: `proprietary_name:${query} generic_name:${query}`,
+          search: openFdaAnyFieldAnd(
+            ["proprietary_name", "generic_name"],
+            query,
+          ),
+          sort: "update_date:desc",
           limit,
         })
         .set("User-Agent", USER_AGENT)

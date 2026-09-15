@@ -2,8 +2,12 @@ import superagent from "superagent";
 import { CLINICALTRIALS_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
-import { ClinicalTrialsResponseSchema, safeValidate } from "../../validation/schemas.js";
+import {
+  ClinicalTrialsResponseSchema,
+  safeValidate,
+} from "../../validation/schemas.js";
 import { timedHealthCheck } from "../http.js";
+import { buildClinicalTrialsQuery } from "../query.js";
 import type { ClinicalTrial, SearchOpts, SourceAdapter } from "../types.js";
 
 type Study = {
@@ -54,7 +58,7 @@ export async function searchClinicalTrialsApi(
 ): Promise<ClinicalTrial[]> {
   const limit = opts.limit ?? 10;
   const params: Record<string, string | number> = {
-    "query.term": query,
+    ...buildClinicalTrialsQuery(query),
     format: "json",
     pageSize: limit,
   };

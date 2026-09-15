@@ -6,12 +6,7 @@ export type SourceDomain =
   | "guidelines"
   | "public_health";
 
-export type AccessType =
-  | "rest"
-  | "bulk-json"
-  | "soap"
-  | "scrape"
-  | "licensed";
+export type AccessType = "rest" | "bulk-json" | "soap" | "scrape" | "licensed";
 
 export interface SearchOpts {
   limit?: number;
@@ -99,4 +94,15 @@ export interface FanoutError {
 export interface FanoutResult<T> {
   items: T[];
   errors: FanoutError[];
+}
+
+export interface SourceCatalogRow {
+  id: string;
+  name: string;
+  country: string;
+  domain: string;
+  access: string;
+  requiresKey: boolean;
+  tools: string[];
+  exposed: boolean;
 }

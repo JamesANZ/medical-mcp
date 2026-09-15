@@ -6,11 +6,12 @@ import {
 } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
+import { hasMonidKey, monidRun } from "../monid.js";
 import { skippedHealth, timedHealthCheck } from "../http.js";
 import type { LiteratureItem, SearchOpts, SourceAdapter } from "../types.js";
 
 export function hasTinyFishKey(): boolean {
-  return Boolean(TINYFISH_API_KEY);
+  return hasMonidKey() || Boolean(TINYFISH_API_KEY);
 }
 
 type TinyFishResult = {
@@ -25,9 +26,19 @@ type TinyFishResult = {
   site_name?: string;
 };
 
+export function extractTinyFishResults(output: unknown): TinyFishResult[] {
+  if (!output) return [];
+  if (Array.isArray(output)) return output as TinyFishResult[];
+  if (typeof output === "object" && output && "results" in output) {
+    const rows = (output as { results?: unknown }).results;
+    return Array.isArray(rows) ? (rows as TinyFishResult[]) : [];
+  }
+  return [];
+}
+
 export function mapTinyFishResult(
   row: TinyFishResult,
-  source = "TinyFish",
+  source = "Monid TinyFish",
 ): LiteratureItem {
   const authors = Array.isArray(row.authors)
     ? row.authors.join(", ")
@@ -48,37 +59,49 @@ export function mapTinyFishResult(
   };
 }
 
+function searchInput(query: string, opts: SearchOpts) {
+  const domainType = String(opts.extra?.domainType || "research_paper");
+  const includeDomains = opts.extra?.includeDomains
+    ? String(opts.extra.includeDomains)
+    : undefined;
+  const location = opts.extra?.location
+    ? String(opts.extra.location)
+    : undefined;
+  const purpose =
+    String(opts.extra?.purpose || "") ||
+    "Find authoritative medical literature, guidelines, or regulator pages";
+  return {
+    query,
+    domain_type: domainType,
+    purpose,
+    ...(includeDomains ? { include_domains: includeDomains } : {}),
+    ...(location ? { location } : {}),
+  };
+}
+
 export async function searchTinyFish(
   query: string,
   opts: SearchOpts = {},
 ): Promise<LiteratureItem[]> {
   if (!hasTinyFishKey()) return [];
-
-  const domainType = String(opts.extra?.domainType || "research_paper");
-  const includeDomains = opts.extra?.includeDomains
-    ? String(opts.extra.includeDomains)
-    : undefined;
-  const location = opts.extra?.location ? String(opts.extra.location) : undefined;
-  const purpose =
-    String(opts.extra?.purpose || "") ||
-    "Find authoritative medical literature, guidelines, or regulator pages";
+  const input = searchInput(query, opts);
 
   try {
-    const res = await resilientCall("TinyFish", async () =>
-      superagent
-        .get(TINYFISH_SEARCH_API_BASE)
-        .query({
-          query,
-          domain_type: domainType,
-          purpose,
-          ...(includeDomains ? { include_domains: includeDomains } : {}),
-          ...(location ? { location } : {}),
-        })
-        .set("User-Agent", USER_AGENT)
-        .set("X-API-Key", TINYFISH_API_KEY)
-        .timeout({ response: 15_000, deadline: 30_000 }),
-    );
-    const rows = (res.body?.results || []) as TinyFishResult[];
+    let rows: TinyFishResult[] = [];
+    if (hasMonidKey()) {
+      const output = await monidRun("tinyfish", "/search", input);
+      rows = extractTinyFishResults(output);
+    } else {
+      const res = await resilientCall("TinyFish", async () =>
+        superagent
+          .get(TINYFISH_SEARCH_API_BASE)
+          .query(input)
+          .set("User-Agent", USER_AGENT)
+          .set("X-API-Key", TINYFISH_API_KEY)
+          .timeout({ response: 15_000, deadline: 30_000 }),
+      );
+      rows = extractTinyFishResults(res.body);
+    }
     const limit = opts.limit ?? rows.length;
     return rows.slice(0, limit).map((row) => mapTinyFishResult(row));
   } catch (error) {
@@ -92,7 +115,7 @@ export async function searchTinyFish(
 
 export const tinyFishSearchAdapter: SourceAdapter<LiteratureItem> = {
   id: "tinyfish-search",
-  name: "TinyFish Search",
+  name: "Monid TinyFish Search",
   country: "INTL",
   domain: "literature",
   access: "rest",
@@ -101,16 +124,17 @@ export const tinyFishSearchAdapter: SourceAdapter<LiteratureItem> = {
   healthCheck: () => {
     if (!hasTinyFishKey()) {
       return Promise.resolve(
-        skippedHealth("TINYFISH_API_KEY not set — using other literature sources"),
+        skippedHealth("MONID_API_KEY not set — using other literature sources"),
       );
     }
     return timedHealthCheck(async () => {
-      await superagent
-        .get(TINYFISH_SEARCH_API_BASE)
-        .query({ query: "aspirin", domain_type: "research_paper" })
-        .set("User-Agent", USER_AGENT)
-        .set("X-API-Key", TINYFISH_API_KEY)
-        .timeout({ response: 10_000, deadline: 15_000 });
+      const rows = await searchTinyFish("aspirin", {
+        limit: 1,
+        extra: { domainType: "research_paper" },
+      });
+      if (rows.length === 0) {
+        throw new Error("Monid TinyFish search returned no results");
+      }
     });
   },
 };

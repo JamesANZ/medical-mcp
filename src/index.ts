@@ -48,7 +48,7 @@ import {
   formatSafetyEvents,
   formatSourceCatalog,
 } from "./sources/format.js";
-import { TINYFISH_API_KEY } from "./constants.js";
+import { MONID_API_KEY } from "./constants.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
@@ -77,7 +77,7 @@ const server = new McpServer({
 // MCP Tools
 server.tool(
   "search-drugs",
-  "Search national drug regulators (FDA, DailyMed, TGA, Health Canada, EMA). Defaults to US, AU, CA, and EU. Pass countries: [\"US\"] for FDA/DailyMed only.",
+  'Search national drug regulators (FDA, DailyMed, TGA, Health Canada, EMA). Defaults to US, AU, CA, and EU. Pass countries: ["US"] for FDA/DailyMed only.',
   {
     query: z
       .string()
@@ -172,7 +172,7 @@ server.tool(
 
 server.tool(
   "list-sources",
-  "List registered medical data sources (country, domain, access type, whether an API key is required)",
+  "List medical data sources and which MCP tools reach them. Includes registry adapters and dedicated-tool sources (WHO, PubMed, RxNorm, Scholar). Not limited to the search-drugs regulator fanout.",
   {},
   async () => {
     try {
@@ -446,7 +446,7 @@ server.tool(
       // NCBI API key
       text += `\n## Configuration\n\n`;
       text += `NCBI API Key: ${health.ncbiApiKey ? "✅ Configured (10 req/sec PubMed)" : "❌ Not set (3 req/sec PubMed — set NCBI_API_KEY for 3x throughput)"}\n`;
-      text += `TinyFish API Key: ${health.tinyfishApiKey || TINYFISH_API_KEY ? "✅ Configured (Search/Fetch replace Puppeteer)" : "❌ Not set — Scholar/Cochrane still use Puppeteer + Semantic Scholar fallback"}\n`;
+      text += `Monid API Key: ${health.monidApiKey || MONID_API_KEY ? "✅ Configured (TinyFish search/fetch via Monid)" : "❌ Not set — Scholar/Cochrane/AAP use Semantic Scholar or skip. Set MONID_API_KEY at https://app.monid.ai/access/api-keys"}\n`;
 
       // Circuit breakers
       if (health.circuitBreakers.length > 0) {

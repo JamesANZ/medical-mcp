@@ -3,12 +3,12 @@ export const WHO_API_BASE = "https://ghoapi.azureedge.net/api";
 export const RXNAV_API_BASE = "https://rxnav.nlm.nih.gov/REST";
 export const PUBMED_API_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 export const PMC_API_BASE = "https://www.ncbi.nlm.nih.gov/pmc";
-export const GOOGLE_SCHOLAR_API_BASE = "https://scholar.google.com/scholar";
 export const SEMANTIC_SCHOLAR_API_BASE =
   "https://api.semanticscholar.org/graph/v1";
 export const TGA_ARTG_API_BASE =
   "https://data.tga.gov.au/ARTGSearch/ARTGWebService.svc/JSON";
-export const HEALTH_CANADA_API_BASE = "https://health-products.canada.ca/api/drug";
+export const HEALTH_CANADA_API_BASE =
+  "https://health-products.canada.ca/api/drug";
 export const EMA_MEDICINES_JSON_URL =
   "https://www.ema.europa.eu/en/documents/report/medicines-output-medicines_json-report_en.json";
 export const DAILYMED_API_BASE =
@@ -19,9 +19,11 @@ export const CLINICALTRIALS_API_BASE =
   "https://clinicaltrials.gov/api/v2/studies";
 export const TINYFISH_SEARCH_API_BASE = "https://api.search.tinyfish.ai";
 export const TINYFISH_FETCH_API_BASE = "https://api.fetch.tinyfish.ai";
+export const MONID_API_BASE = "https://api.monid.ai";
 export const ANZCTR_API_BASE =
   "https://api.anzctr.org.au/WebServices/AnzctrWebservices.asmx";
 export const USER_AGENT = "medical-mcp/2.0";
+export const MONID_API_KEY = process.env.MONID_API_KEY || "";
 export const TINYFISH_API_KEY = process.env.TINYFISH_API_KEY || "";
 export const DEFAULT_DRUG_COUNTRIES = ["US", "AU", "CA", "EU"] as const;
 
@@ -103,19 +105,4 @@ export const WHO_CHILD_HEALTH_INDICATORS = [
   "MDG_0000000034", // DPT3 immunization coverage
   "WHS4_544", // Child malnutrition
   "WHS9_86", // Exclusive breastfeeding
-];
-
-// Puppeteer launch arguments for web scraping
-export const PUPPETEER_LAUNCH_ARGS = [
-  "--no-sandbox",
-  "--disable-setuid-sandbox",
-  "--disable-dev-shm-usage",
-  "--disable-accelerated-2d-canvas",
-  "--no-first-run",
-  "--no-zygote",
-  "--disable-gpu",
-  "--disable-web-security",
-  "--disable-features=VizDisplayCompositor",
-  "--disable-blink-features=AutomationControlled",
-  "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
 ];

@@ -1,6 +1,7 @@
 import { getCacheConfig } from "../cache/config.js";
 import { cachedCall } from "./cached.js";
 import { fanoutSearch } from "./fanout.js";
+import { dedupeSafetyEvents } from "./query.js";
 import { registerDefaultSources } from "./register.js";
 import { listSources } from "./registry.js";
 import type { SafetyEvent, SourceAdapter } from "./types.js";
@@ -16,6 +17,9 @@ export async function searchDrugSafety(query: string, limit = 10) {
     "search-drug-safety",
     { query, limit },
     ttl,
-    () => fanoutSearch(adapters, query, { limit }),
+    async () => {
+      const result = await fanoutSearch(adapters, query, { limit });
+      return { ...result, items: dedupeSafetyEvents(result.items) };
+    },
   );
 }

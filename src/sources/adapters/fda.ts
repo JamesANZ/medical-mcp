@@ -2,7 +2,10 @@ import superagent from "superagent";
 import { FDA_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
-import { FDASearchResponseSchema, safeValidate } from "../../validation/schemas.js";
+import {
+  FDASearchResponseSchema,
+  safeValidate,
+} from "../../validation/schemas.js";
 import { timedHealthCheck } from "../http.js";
 import type { RegulatoryProduct, SearchOpts, SourceAdapter } from "../types.js";
 

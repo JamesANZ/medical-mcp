@@ -4,7 +4,10 @@ import { resetDefaultSources, registerDefaultSources } from "../register.js";
 import { filterEmaMedicines, mapEmaMedicine } from "../adapters/ema.js";
 import { mapFdaResult } from "../adapters/fda.js";
 import { mapTgaResult } from "../adapters/tga.js";
-import { mapTinyFishResult } from "../adapters/tinyfish-search.js";
+import {
+  mapTinyFishResult,
+  extractTinyFishResults,
+} from "../adapters/tinyfish-search.js";
 import { formatRegulatoryProducts } from "../format.js";
 import type { RegulatoryProduct, SourceAdapter } from "../types.js";
 
@@ -137,6 +140,18 @@ describe("source mappers", () => {
     expect(paper.journal).toBe("NEJM");
     expect(paper.citations).toBe("12 citations");
     expect(paper.pdfUrl).toContain(".pdf");
+  });
+
+  test("unwraps TinyFish results from a Monid output envelope", () => {
+    expect(
+      extractTinyFishResults({
+        results: [{ title: "Paper", url: "https://example.org" }],
+      }),
+    ).toHaveLength(1);
+    expect(extractTinyFishResults([{ title: "Direct" }])).toEqual([
+      { title: "Direct" },
+    ]);
+    expect(extractTinyFishResults(null)).toEqual([]);
   });
 });
 

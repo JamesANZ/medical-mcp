@@ -11,10 +11,8 @@ import {
   ChildHealthIndicator,
 } from "./types.js";
 import superagent from "superagent";
-import puppeteer from "puppeteer";
 import {
   FDA_API_BASE,
-  GOOGLE_SCHOLAR_API_BASE,
   PUBMED_API_BASE,
   PMC_API_BASE,
   RXNAV_API_BASE,
@@ -24,12 +22,10 @@ import {
   GUIDELINE_KEYWORDS,
   GUIDELINE_SCORE_WEIGHTS,
   ORG_EXTRACTION_PATTERNS,
-  AAP_BRIGHT_FUTURES_BASE,
-  AAP_PUBLICATIONS_BASE,
   PEDIATRIC_JOURNALS,
   WHO_CHILD_HEALTH_INDICATORS,
-  PUPPETEER_LAUNCH_ARGS,
   NCBI_API_KEY,
+  MONID_API_KEY,
 } from "./constants.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
@@ -41,6 +37,7 @@ import {
   hasTinyFishKey,
   searchTinyFish,
 } from "./sources/adapters/tinyfish-search.js";
+import { fetchTinyFishPages } from "./sources/adapters/tinyfish-fetch.js";
 import { TINYFISH_API_KEY } from "./constants.js";
 import {
   classifyEvidence,
@@ -500,11 +497,6 @@ export async function searchRxNormDrugs(query: string): Promise<RxNormDrug[]> {
     console.error("Error searching RxNorm drugs:", error);
     return [];
   }
-}
-
-function randomDelay(min: number, max: number): Promise<void> {
-  const delay = Math.random() * (max - min) + min;
-  return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
 export function createMCPResponse(text: string) {
@@ -1614,301 +1606,8 @@ export async function searchGoogleScholar(
     return searchSemanticScholar(query, 10);
   }
 
-  let browser;
-  try {
-    logger.info("GoogleScholar", `Scraping Google Scholar for: ${query}`);
-
-    // Add random delay to avoid rate limiting
-    await randomDelay(2000, 5000);
-
-    // Enhanced browser configuration for better anti-detection
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-        "--disable-web-security",
-        "--disable-features=VizDisplayCompositor",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-extensions",
-        "--disable-plugins",
-        "--disable-images",
-        "--disable-javascript",
-        "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      ],
-    });
-
-    const page = await browser.newPage();
-
-    // Enhanced stealth configuration
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, "webdriver", {
-        get: () => undefined,
-      });
-    });
-
-    // Random viewport size
-    const viewports = [
-      { width: 1920, height: 1080 },
-      { width: 1366, height: 768 },
-      { width: 1440, height: 900 },
-      { width: 1536, height: 864 },
-    ];
-    const randomViewport =
-      viewports[Math.floor(Math.random() * viewports.length)];
-    await page.setViewport(randomViewport);
-
-    // Rotate user agents
-    const userAgents = [
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-    ];
-    const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
-    await page.setUserAgent(randomUA);
-
-    // Enhanced headers
-    await page.setExtraHTTPHeaders({
-      "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
-      "Accept-Encoding": "gzip, deflate, br",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "none",
-      "Sec-Fetch-User": "?1",
-      "Upgrade-Insecure-Requests": "1",
-    });
-
-    // Navigate to Google Scholar with enhanced query
-    const searchUrl = `${GOOGLE_SCHOLAR_API_BASE}?q=${encodeURIComponent(query)}&hl=en&as_sdt=0%2C5&as_ylo=2020`;
-    await page.goto(searchUrl, {
-      waitUntil: "networkidle2",
-      timeout: 45000,
-    });
-
-    // Wait for results with multiple fallback selectors
-    try {
-      await page.waitForSelector(".gs_r, .gs_ri, .gs_or, [data-rp]", {
-        timeout: 20000,
-      });
-    } catch (error) {
-      // Try alternative selectors
-      try {
-        await page.waitForSelector(".g, .rc, .r", { timeout: 10000 });
-      } catch (error2) {
-        console.error("No search results found or page structure changed");
-        return [];
-      }
-    }
-
-    // Enhanced data extraction with better selectors
-    const results = await page.evaluate(() => {
-      const results: GoogleScholarArticle[] = [];
-
-      // Multiple selector strategies for different Google Scholar layouts
-      const selectors = [
-        ".gs_r, .gs_ri, .gs_or",
-        ".g, .rc, .r",
-        "[data-rp]",
-        ".gs_rt, .gs_ri",
-      ];
-
-      let articleElements: NodeListOf<Element> | null = null;
-      for (const selector of selectors) {
-        articleElements = document.querySelectorAll(selector);
-        if (articleElements.length > 0) break;
-      }
-
-      if (!articleElements || articleElements.length === 0) {
-        return results;
-      }
-
-      articleElements.forEach((element) => {
-        try {
-          // Enhanced title extraction
-          const titleSelectors = [
-            ".gs_rt a, .gs_rt",
-            "h3 a, h3",
-            "a[data-clk]",
-            ".gs_rt a",
-            ".rc h3 a",
-            ".r h3 a",
-          ];
-
-          let title = "";
-          let url = "";
-          for (const selector of titleSelectors) {
-            const titleElement = element.querySelector(selector);
-            if (titleElement) {
-              title = titleElement.textContent?.trim() || "";
-              url = (titleElement as HTMLAnchorElement)?.href || "";
-              if (title) break;
-            }
-          }
-
-          // Enhanced authors/venue extraction
-          const authorSelectors = [
-            ".gs_a, .gs_authors, .gs_venue",
-            '[class*="author"]',
-            '[class*="venue"]',
-            ".gs_a",
-            ".rc .s",
-            ".r .s",
-          ];
-
-          let authors = "";
-          for (const selector of authorSelectors) {
-            const authorElement = element.querySelector(selector);
-            if (authorElement) {
-              authors = authorElement.textContent?.trim() || "";
-              if (authors) break;
-            }
-          }
-
-          // Enhanced abstract extraction
-          const abstractSelectors = [
-            ".gs_rs, .gs_rs_a, .gs_snippet",
-            '[class*="snippet"]',
-            '[class*="abstract"]',
-            ".gs_rs",
-            ".rc .st",
-            ".r .st",
-          ];
-
-          let abstract = "";
-          for (const selector of abstractSelectors) {
-            const abstractElement = element.querySelector(selector);
-            if (abstractElement) {
-              abstract = abstractElement.textContent?.trim() || "";
-              if (abstract) break;
-            }
-          }
-
-          // Enhanced citation extraction
-          const citationSelectors = [
-            ".gs_fl a, .gs_fl",
-            '[class*="citation"]',
-            'a[href*="cites"]',
-            ".gs_fl",
-            ".rc .f",
-            ".r .f",
-          ];
-
-          let citations = "";
-          for (const selector of citationSelectors) {
-            const citationElement = element.querySelector(selector);
-            if (citationElement) {
-              citations = citationElement.textContent?.trim() || "";
-              if (citations) break;
-            }
-          }
-
-          // Enhanced year extraction with better patterns
-          let year = "";
-          const yearPatterns = [
-            /(\d{4})/g,
-            /\((\d{4})\)/g,
-            /(\d{4})\s*[–-]/g,
-            /(\d{4})\s*$/g,
-          ];
-
-          const textSources = [authors, title, abstract, citations];
-          for (const text of textSources) {
-            for (const pattern of yearPatterns) {
-              const matches = text.match(pattern);
-              if (matches) {
-                const years = matches
-                  .map((m) => m.replace(/\D/g, ""))
-                  .filter((y) => y.length === 4);
-                const validYears = years.filter(
-                  (y) =>
-                    parseInt(y) >= 1900 &&
-                    parseInt(y) <= new Date().getFullYear() + 1,
-                );
-                if (validYears.length > 0) {
-                  year = validYears[validYears.length - 1]; // Get most recent year
-                  break;
-                }
-              }
-            }
-            if (year) break;
-          }
-
-          // Enhanced journal extraction
-          let journal = "";
-          const journalPatterns = [
-            /- ([^-]+)$/,
-            /, ([^,]+)$/,
-            /in ([^,]+)/,
-            /([A-Z][^,]+(?:Journal|Review|Medicine|Health|Science|Research))/i,
-            /([A-Z][^,]+(?:Lancet|Nature|Science|NEJM|JAMA|BMJ))/i,
-          ];
-
-          for (const pattern of journalPatterns) {
-            const match = authors.match(pattern);
-            if (match) {
-              journal = match[1].trim();
-              break;
-            }
-          }
-
-          // DOI extraction
-          const doiTextSources = [
-            element.textContent || "",
-            title,
-            authors,
-            abstract,
-            citations,
-          ];
-          const doi = extractDOI(doiTextSources);
-
-          // Quality filter - only include substantial results
-          if (title && title.length > 10 && title.length < 500) {
-            results.push({
-              title: title.substring(0, 500), // Limit title length
-              authors: authors.substring(0, 300), // Limit authors length
-              abstract: abstract.substring(0, 1000), // Limit abstract length
-              journal: journal.substring(0, 200), // Limit journal length
-              year,
-              citations: citations.substring(0, 100), // Limit citations length
-              url: url.substring(0, 500), // Limit URL length
-              doi: doi || undefined, // Add DOI if found
-            });
-          }
-        } catch (error) {
-          console.error("Error processing article element:", error);
-          // Skip this iteration
-        }
-      });
-
-      return results;
-    });
-
-    // Apply deduplication
-    const dedupResult = deduplicatePapers(results);
-    return dedupResult.papers as GoogleScholarArticle[];
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    logger.warn(
-      "GoogleScholar",
-      `Scraping failed: ${errMsg}. Falling back to Semantic Scholar.`,
-    );
-    // Fallback to Semantic Scholar API (free, reliable, no scraping)
-    return searchSemanticScholar(query, 10);
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
+  logger.info("GoogleScholar", "No Monid/TinyFish key; using Semantic Scholar");
+  return searchSemanticScholar(query, 10);
 }
 
 export async function searchMedicalDatabases(
@@ -2045,81 +1744,8 @@ async function searchCochraneLibrary(
     }
   }
 
-  let browser;
-  try {
-    logger.info("Cochrane", `Scraping Cochrane Library for: ${query}`);
-
-    await randomDelay(1000, 3000);
-
-    browser = await puppeteer.launch({
-      headless: true,
-      args: PUPPETEER_LAUNCH_ARGS,
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    );
-
-    // Search Cochrane Library
-    const searchUrl = `https://www.cochranelibrary.com/search?q=${encodeURIComponent(query)}`;
-    await page.goto(searchUrl, { waitUntil: "networkidle2", timeout: 30000 });
-
-    return await page.evaluate(() => {
-      const results: GoogleScholarArticle[] = [];
-      const articles = document.querySelectorAll(
-        ".search-result-item, .result-item, .search-result",
-      );
-
-      articles.forEach((article) => {
-        const titleElement = article.querySelector(
-          "h3 a, .title a, .result-title a",
-        );
-        const title = titleElement?.textContent?.trim() || "";
-        const url = (titleElement as HTMLAnchorElement)?.href || "";
-
-        const authorsElement = article.querySelector(
-          ".authors, .author-list, .contributors",
-        );
-        const authors = authorsElement?.textContent?.trim() || "";
-
-        const abstractElement = article.querySelector(
-          ".abstract, .snippet, .summary",
-        );
-        const abstract = abstractElement?.textContent?.trim() || "";
-
-        const journalElement = article.querySelector(
-          ".journal, .source, .publication",
-        );
-        const journal =
-          journalElement?.textContent?.trim() || "Cochrane Database";
-
-        if (title && title.length > 10) {
-          results.push({
-            title,
-            authors,
-            abstract,
-            journal,
-            year: "",
-            citations: "",
-            url: url.startsWith("http")
-              ? url
-              : `https://www.cochranelibrary.com${url}`,
-          });
-        }
-      });
-
-      return results;
-    });
-  } catch (error) {
-    console.error("Error scraping Cochrane Library:", error);
-    return [];
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
+  logger.info("Cochrane", "No Monid results; skipping local scrape");
+  return [];
 }
 
 async function searchClinicalTrials(
@@ -2221,127 +1847,40 @@ async function searchJournal(
 }
 
 async function fetchFullTextFromPMC(pmc_id: string): Promise<string | null> {
-  let browser;
   try {
-    // Try multiple methods to get full text
+    const pmcXmlUrl = `${PMC_API_BASE}/oai/oai.cgi?verb=GetRecord&identifier=oai:pubmedcentral.nih.gov:${pmc_id}&metadataPrefix=pmc`;
+    const xmlResponse = await superagent
+      .get(pmcXmlUrl)
+      .set("User-Agent", USER_AGENT)
+      .timeout(30000);
 
-    // Method 1: Try PMC's XML/PMC format API
-    try {
-      const pmcXmlUrl = `${PMC_API_BASE}/oai/oai.cgi?verb=GetRecord&identifier=oai:pubmedcentral.nih.gov:${pmc_id}&metadataPrefix=pmc`;
-      const xmlResponse = await superagent
-        .get(pmcXmlUrl)
-        .set("User-Agent", USER_AGENT)
-        .timeout(30000);
-
-      const xmlText = xmlResponse.text;
-
-      // Extract text from body sections
-      const bodyMatches = xmlText.match(/<body[^>]*>([\s\S]*?)<\/body>/gi);
-      if (bodyMatches && bodyMatches.length > 0) {
-        let fullText = "";
-        for (const body of bodyMatches) {
-          const text = body
-            .replace(/<[^>]*>/g, " ") // Remove tags
-            .replace(/\s+/g, " ") // Normalize whitespace
-            .trim();
-          if (text.length > 100) {
-            // Only include substantial sections
-            fullText += text + "\n\n";
-          }
-        }
-        if (fullText.trim().length > 500) {
-          return fullText.trim();
+    const xmlText = xmlResponse.text;
+    const bodyMatches = xmlText.match(/<body[^>]*>([\s\S]*?)<\/body>/gi);
+    if (bodyMatches && bodyMatches.length > 0) {
+      let fullText = "";
+      for (const body of bodyMatches) {
+        const extracted = body
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (extracted.length > 100) {
+          fullText += extracted + "\n\n";
         }
       }
-    } catch (xmlError) {
-      // Continue to next method
-      console.error(`PMC XML method failed for ${pmc_id}, trying HTML method`);
-    }
-
-    // Method 2: Scrape HTML page using puppeteer
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-    });
-
-    const page = await browser.newPage();
-    await page.setUserAgent(USER_AGENT);
-
-    const pmcHtmlUrl = `${PMC_API_BASE}/articles/PMC${pmc_id}/`;
-    await page.goto(pmcHtmlUrl, {
-      waitUntil: "networkidle2",
-      timeout: 30000,
-    });
-
-    // Extract full text from the page
-    const fullText = await page.evaluate(() => {
-      // Try to get the main content
-      const selectors = [
-        "#mc",
-        ".article-content",
-        ".main-content",
-        "article",
-        "[role='main']",
-        ".full-text",
-      ];
-
-      for (const selector of selectors) {
-        const element = document.querySelector(selector);
-        if (element) {
-          // Get all paragraph text
-          const paragraphs = element.querySelectorAll("p");
-          if (paragraphs.length > 0) {
-            let text = "";
-            paragraphs.forEach((p) => {
-              const pText = p.textContent?.trim();
-              if (pText && pText.length > 20) {
-                text += pText + "\n\n";
-              }
-            });
-            if (text.trim().length > 500) {
-              return text.trim();
-            }
-          }
-        }
+      if (fullText.trim().length > 500) {
+        return fullText.trim();
       }
-
-      // Fallback: get all visible text
-      const body = document.body;
-      if (body) {
-        // Remove script and style elements
-        const scripts = body.querySelectorAll(
-          "script, style, nav, footer, header",
-        );
-        scripts.forEach((el) => el.remove());
-
-        return body.innerText
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 20)
-          .join("\n\n")
-          .substring(0, 50000); // Limit to 50k chars
-      }
-
-      return null;
-    });
-
-    if (fullText && fullText.trim().length > 500) {
-      return fullText.trim();
     }
-
-    return null;
-  } catch (error) {
-    console.error(`Error fetching full text from PMC ${pmc_id}:`, error);
-    return null;
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
+  } catch (xmlError) {
+    logger.warn("PMC", `XML method failed for ${pmc_id}; trying Monid fetch`);
   }
+
+  const pages = await fetchTinyFishPages(
+    [`${PMC_API_BASE}/articles/PMC${pmc_id}/`],
+    "Extract full text of this open-access PMC article",
+  );
+  const text = pages[0]?.text?.trim() || "";
+  return text.length > 500 ? text.slice(0, 50000) : null;
 }
 
 export async function searchPubMedArticles(
@@ -2976,147 +2515,53 @@ export async function searchClinicalGuidelines(
 export async function searchBrightFuturesGuidelines(
   query: string,
 ): Promise<PediatricGuideline[]> {
-  let browser;
-  try {
-    logger.info("BrightFutures", `Scraping Bright Futures for: ${query}`);
-
-    await randomDelay(1000, 3000);
-
-    browser = await puppeteer.launch({
-      headless: true,
-      args: PUPPETEER_LAUNCH_ARGS,
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    );
-
-    // Search Bright Futures
-    const searchUrl = `${AAP_BRIGHT_FUTURES_BASE}/Search?q=${encodeURIComponent(query)}`;
-    await page.goto(searchUrl, { waitUntil: "networkidle2", timeout: 30000 });
-
-    return await page.evaluate(() => {
-      const results: PediatricGuideline[] = [];
-      const items = document.querySelectorAll(
-        ".search-result, .result-item, .guideline-item, article, .content-item",
-      );
-
-      items.forEach((item) => {
-        const titleElement = item.querySelector("h2, h3, .title, a.title");
-        const title = titleElement?.textContent?.trim() || "";
-        const urlElement = item.querySelector("a");
-        const url = urlElement?.href || "";
-
-        const descriptionElement = item.querySelector(
-          ".description, .summary, .abstract, p",
-        );
-        const description = descriptionElement?.textContent?.trim() || "";
-
-        // Try to extract age group
-        const ageGroupMatch = title.match(
-          /(\d+\s*(?:-|\s*to\s*)\s*\d+\s*(?:months?|years?|days?)|infant|toddler|preschool|school-age|adolescent)/i,
-        );
-        const ageGroup = ageGroupMatch?.[0] || "";
-
-        if (title && title.length > 10) {
-          results.push({
-            title,
-            organization: "American Academy of Pediatrics",
-            url: url.startsWith("http")
-              ? url
-              : `https://brightfutures.aap.org${url}`,
-            description: description.substring(0, 300),
-            age_group: ageGroup,
-            category: "Preventive Care",
-            source: "bright-futures",
-          });
-        }
-      });
-
-      return results;
-    });
-  } catch (error) {
-    console.error("Error scraping Bright Futures:", error);
-    return [];
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
+  logger.info(
+    "BrightFutures",
+    `Searching Bright Futures via Monid for: ${query}`,
+  );
+  const items = await searchTinyFish(query, {
+    limit: 10,
+    extra: {
+      domainType: "web",
+      includeDomains: "brightfutures.aap.org,aap.org",
+      purpose: "Find AAP Bright Futures pediatric preventive care guidelines",
+    },
+  });
+  return items.map((item) => ({
+    title: item.title,
+    organization: "American Academy of Pediatrics",
+    url: item.url || "",
+    description: (item.abstract || "").substring(0, 300),
+    age_group: "",
+    category: "Preventive Care",
+    source: "bright-futures",
+  }));
 }
 
 export async function searchAAPPolicyStatements(
   query: string,
 ): Promise<PediatricGuideline[]> {
-  let browser;
-  try {
-    logger.info("AAPPolicy", `Scraping AAP Policy Statements for: ${query}`);
-
-    await randomDelay(1000, 3000);
-
-    browser = await puppeteer.launch({
-      headless: true,
-      args: PUPPETEER_LAUNCH_ARGS,
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    );
-
-    // Search AAP publications
-    const searchUrl = `${AAP_PUBLICATIONS_BASE}/search?q=${encodeURIComponent(query)}`;
-    await page.goto(searchUrl, { waitUntil: "networkidle2", timeout: 30000 });
-
-    return await page.evaluate(() => {
-      const results: PediatricGuideline[] = [];
-      const items = document.querySelectorAll(
-        ".search-result, .result-item, .article-item, article, .publication-item",
-      );
-
-      items.forEach((item) => {
-        const titleElement = item.querySelector("h2, h3, .title, a.title");
-        const title = titleElement?.textContent?.trim() || "";
-        const urlElement = item.querySelector("a");
-        const url = urlElement?.href || "";
-
-        const descriptionElement = item.querySelector(
-          ".description, .summary, .abstract, p",
-        );
-        const description = descriptionElement?.textContent?.trim() || "";
-
-        // Try to extract year
-        const yearMatch = title.match(/\b(19|20)\d{2}\b/);
-        const year = yearMatch?.[0] || "";
-
-        if (title && title.length > 10) {
-          results.push({
-            title,
-            organization: "American Academy of Pediatrics",
-            year,
-            url: url.startsWith("http")
-              ? url
-              : `https://publications.aap.org${url}`,
-            description: description.substring(0, 300),
-            category: "Policy Statement",
-            source: "aap-policy",
-          });
-        }
-      });
-
-      return results;
-    });
-  } catch (error) {
-    console.error("Error scraping AAP Policy Statements:", error);
-    return [];
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
+  logger.info(
+    "AAPPolicy",
+    `Searching AAP policy statements via Monid for: ${query}`,
+  );
+  const items = await searchTinyFish(query, {
+    limit: 10,
+    extra: {
+      domainType: "web",
+      includeDomains: "publications.aap.org,aap.org",
+      purpose: "Find AAP policy statements and pediatric clinical guidelines",
+    },
+  });
+  return items.map((item) => ({
+    title: item.title,
+    organization: "American Academy of Pediatrics",
+    year: item.year || "",
+    url: item.url || "",
+    description: (item.abstract || "").substring(0, 300),
+    category: "Policy Statement",
+    source: "aap-policy",
+  }));
 }
 
 export async function searchPediatricJournals(
@@ -4011,6 +3456,7 @@ export async function getSourceHealth(): Promise<{
   rateLimiters: ReturnType<typeof getAllRateLimiterStatus>;
   cache: ReturnType<typeof cacheManager.getStats>;
   ncbiApiKey: boolean;
+  monidApiKey: boolean;
   tinyfishApiKey: boolean;
 }> {
   const checks: Array<{ name: string; fn: () => Promise<void> }> = [
@@ -4102,8 +3548,7 @@ export async function getSourceHealth(): Promise<{
         return {
           source: check.name,
           status: (latencyMs > 8_000 ? "degraded" : "down") as
-            | "degraded"
-            | "down",
+            "degraded" | "down",
           latencyMs,
           error: error instanceof Error ? error.message : String(error),
         };
@@ -4131,6 +3576,7 @@ export async function getSourceHealth(): Promise<{
     rateLimiters: getAllRateLimiterStatus(),
     cache: cacheManager.getStats(),
     ncbiApiKey: !!NCBI_API_KEY,
+    monidApiKey: !!MONID_API_KEY,
     tinyfishApiKey: !!TINYFISH_API_KEY,
   };
 }

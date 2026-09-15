@@ -3,6 +3,7 @@ import { FDA_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
 import { timedHealthCheck } from "../http.js";
+import { openFdaAnd } from "../query.js";
 import type { SafetyEvent, SearchOpts, SourceAdapter } from "../types.js";
 
 type Recall = {
@@ -38,7 +39,8 @@ async function searchRecalls(
       superagent
         .get(`${FDA_API_BASE}/drug/enforcement.json`)
         .query({
-          search: `product_description:${query}`,
+          search: openFdaAnd("product_description", query),
+          sort: "report_date:desc",
           limit,
         })
         .set("User-Agent", USER_AGENT)

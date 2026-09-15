@@ -54,7 +54,11 @@ export function mapTgaResult(entry: TgaResult): RegulatoryProduct {
   };
 }
 
-async function searchTgaBy(field: "name" | "ingredient", value: string, limit: number) {
+async function searchTgaBy(
+  field: "name" | "ingredient",
+  value: string,
+  limit: number,
+) {
   const res = await resilientCall("TGA", async () =>
     superagent
       .get(`${TGA_ARTG_API_BASE}/ARTGValueSearch/`)
