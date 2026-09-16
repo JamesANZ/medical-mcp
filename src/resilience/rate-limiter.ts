@@ -117,6 +117,8 @@ const SOURCE_LIMITS: Record<string, RateLimiterOptions> = {
   EuropePMC: { name: "EuropePMC", maxTokens: 5, refillRate: 5 },
   TinyFish: { name: "TinyFish", maxTokens: 5, refillRate: 5 },
   TinyFishFetch: { name: "TinyFishFetch", maxTokens: 3, refillRate: 3 },
+  MonidSearch: { name: "MonidSearch", maxTokens: 5, refillRate: 5 },
+  MonidFetch: { name: "MonidFetch", maxTokens: 3, refillRate: 3 },
 };
 
 const buckets = new Map<string, TokenBucket>();

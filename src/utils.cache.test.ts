@@ -3,7 +3,6 @@ import assert from "node:assert";
 import { cacheManager } from "./cache/manager.js";
 import {
   searchDrugsCached,
-  getDrugByNDCCached,
   getHealthIndicatorsCached,
   searchPubMedArticlesCached,
 } from "./utils.js";
@@ -51,31 +50,6 @@ describe("Cache Integration Tests", () => {
       result2.data,
       "Cached data should match original data",
     );
-  });
-
-  it("should cache getDrugByNDC results", async () => {
-    // Use a known NDC for testing (this would need to be a real NDC in actual tests)
-    const ndc = "12345-678-90";
-
-    // First call
-    const result1 = await getDrugByNDCCached(ndc);
-    assert.strictEqual(
-      result1.metadata.cached,
-      false,
-      "First call should not be cached",
-    );
-
-    // Second call
-    const result2 = await getDrugByNDCCached(ndc);
-    // Note: If the first call returned null (drug not found), second might also be null
-    // but should still be cached
-    if (result1.data !== null) {
-      assert.strictEqual(
-        result2.metadata.cached,
-        true,
-        "Second call should be cached",
-      );
-    }
   });
 
   it("should cache getHealthIndicators results", async () => {

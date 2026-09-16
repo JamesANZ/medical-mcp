@@ -7,6 +7,7 @@ import { mapTgaResult } from "../adapters/tga.js";
 import {
   mapTinyFishResult,
   extractTinyFishResults,
+  toMonidSearchInput,
 } from "../adapters/tinyfish-search.js";
 import { formatRegulatoryProducts } from "../format.js";
 import type { RegulatoryProduct, SourceAdapter } from "../types.js";
@@ -133,13 +134,35 @@ describe("source mappers", () => {
       authors: ["Smith J", "Lee K"],
       venue: "NEJM",
       year: 2024,
-      citation_count: 12,
+      cited_by_count: 12,
       url: "https://example.org/paper",
       pdf_url: "https://example.org/paper.pdf",
     });
     expect(paper.journal).toBe("NEJM");
     expect(paper.citations).toBe("12 citations");
     expect(paper.pdfUrl).toContain(".pdf");
+  });
+
+  test("maps TinyFish citation_count when cited_by_count is absent", () => {
+    const paper = mapTinyFishResult({
+      title: "Legacy citation field",
+      citation_count: 4,
+    });
+    expect(paper.citations).toBe("4 citations");
+  });
+
+  test("wraps TinyFish Search as Monid queryParams", () => {
+    const envelope = toMonidSearchInput("aspirin", {
+      extra: { domainType: "research_paper" },
+    });
+    expect(envelope).toEqual({
+      queryParams: {
+        query: "aspirin",
+        domain_type: "research_paper",
+        purpose:
+          "Find authoritative medical literature, guidelines, or regulator pages",
+      },
+    });
   });
 
   test("unwraps TinyFish results from a Monid output envelope", () => {

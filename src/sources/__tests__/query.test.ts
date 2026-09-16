@@ -259,7 +259,7 @@ describe("source catalog", () => {
     );
 
     const text = formatSourceCatalog(catalog).content[0].text;
-    expect(text).toContain("MCP tools on this server (20)");
+    expect(text).toContain("MCP tools on this server (19)");
     expect(text).toContain("`search-drugs`");
     expect(text).toContain("`search-medical-literature`");
     expect(text).toContain(

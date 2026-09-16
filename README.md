@@ -52,7 +52,6 @@ cd medical-mcp && npm install && npm run build
 ### 💊 Drug Information
 
 - **`search-drugs`** – Search FDA, DailyMed, TGA (Australia), Health Canada, and EMA. Filter with `countries` (`US`, `AU`, `CA`, `EU`)
-- **`get-drug-details`** – Get comprehensive US drug info by NDC code
 - **`search-drug-nomenclature`** – Standardized drug names via RxNorm
 - **`search-drug-safety`** – FDA FAERS adverse events, recalls, and shortages
 

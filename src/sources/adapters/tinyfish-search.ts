@@ -22,6 +22,7 @@ type TinyFishResult = {
   venue?: string;
   year?: number | string;
   citation_count?: number;
+  cited_by_count?: number;
   pdf_url?: string;
   site_name?: string;
 };
@@ -43,6 +44,7 @@ export function mapTinyFishResult(
   const authors = Array.isArray(row.authors)
     ? row.authors.join(", ")
     : row.authors;
+  const citationCount = row.cited_by_count ?? row.citation_count;
   return {
     source,
     title: row.title || "Untitled",
@@ -51,15 +53,18 @@ export function mapTinyFishResult(
     journal: row.venue || row.site_name,
     year: row.year !== undefined ? String(row.year) : undefined,
     citations:
-      typeof row.citation_count === "number"
-        ? `${row.citation_count} citations`
+      typeof citationCount === "number"
+        ? `${citationCount} citations`
         : undefined,
     url: row.url,
     pdfUrl: row.pdf_url,
   };
 }
 
-function searchInput(query: string, opts: SearchOpts) {
+export function buildTinyFishQueryParams(
+  query: string,
+  opts: SearchOpts = {},
+): Record<string, string> {
   const domainType = String(opts.extra?.domainType || "research_paper");
   const includeDomains = opts.extra?.includeDomains
     ? String(opts.extra.includeDomains)
@@ -79,23 +84,32 @@ function searchInput(query: string, opts: SearchOpts) {
   };
 }
 
+export function toMonidSearchInput(query: string, opts: SearchOpts = {}) {
+  return { queryParams: buildTinyFishQueryParams(query, opts) };
+}
+
 export async function searchTinyFish(
   query: string,
   opts: SearchOpts = {},
 ): Promise<LiteratureItem[]> {
   if (!hasTinyFishKey()) return [];
-  const input = searchInput(query, opts);
+  const queryParams = buildTinyFishQueryParams(query, opts);
 
   try {
     let rows: TinyFishResult[] = [];
     if (hasMonidKey()) {
-      const output = await monidRun("tinyfish", "/search", input);
+      const output = await monidRun(
+        "tinyfish",
+        "/search",
+        toMonidSearchInput(query, opts),
+        "MonidSearch",
+      );
       rows = extractTinyFishResults(output);
     } else {
       const res = await resilientCall("TinyFish", async () =>
         superagent
           .get(TINYFISH_SEARCH_API_BASE)
-          .query(input)
+          .query(queryParams)
           .set("User-Agent", USER_AGENT)
           .set("X-API-Key", TINYFISH_API_KEY)
           .timeout({ response: 15_000, deadline: 30_000 }),
@@ -128,13 +142,22 @@ export const tinyFishSearchAdapter: SourceAdapter<LiteratureItem> = {
       );
     }
     return timedHealthCheck(async () => {
-      const rows = await searchTinyFish("aspirin", {
-        limit: 1,
-        extra: { domainType: "research_paper" },
-      });
-      if (rows.length === 0) {
-        throw new Error("Monid TinyFish search returned no results");
+      const pingOpts = { extra: { domainType: "research_paper" } };
+      if (hasMonidKey()) {
+        await monidRun(
+          "tinyfish",
+          "/search",
+          toMonidSearchInput("aspirin", pingOpts),
+          "MonidSearch",
+        );
+        return;
       }
+      await superagent
+        .get(TINYFISH_SEARCH_API_BASE)
+        .query(buildTinyFishQueryParams("aspirin", pingOpts))
+        .set("User-Agent", USER_AGENT)
+        .set("X-API-Key", TINYFISH_API_KEY)
+        .timeout({ response: 10_000, deadline: 15_000 });
     });
   },
 };

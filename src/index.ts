@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   createErrorResponse,
-  formatDrugDetails,
   formatHealthIndicators,
   formatPubMedArticles,
   formatGoogleScholarArticles,
@@ -18,7 +17,6 @@ import {
   formatPediatricDrugs,
   formatAAPGuidelines,
   logSafetyWarnings,
-  getDrugByNDCCached,
   getHealthIndicatorsCached,
   searchPubMedArticlesCached,
   getPubMedArticleByPMIDCached,
@@ -179,22 +177,6 @@ server.tool(
       return formatSourceCatalog(catalogSources());
     } catch (error: any) {
       return createErrorResponse("listing sources", error);
-    }
-  },
-);
-
-server.tool(
-  "get-drug-details",
-  "Get detailed information about a specific drug by NDC (National Drug Code)",
-  {
-    ndc: z.string().describe("National Drug Code (NDC) of the drug"),
-  },
-  async ({ ndc }) => {
-    try {
-      const result = await getDrugByNDCCached(ndc);
-      return formatDrugDetails(result.data, ndc, result.metadata);
-    } catch (error: any) {
-      return createErrorResponse("fetching drug details", error);
     }
   },
 );

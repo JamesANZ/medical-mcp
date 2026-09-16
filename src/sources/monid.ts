@@ -41,12 +41,13 @@ export async function monidRun(
   provider: string,
   endpoint: string,
   input: Record<string, unknown>,
+  sourceName = "Monid",
 ): Promise<unknown> {
   if (!hasMonidKey()) {
     throw new Error("MONID_API_KEY is not set");
   }
 
-  const started = await resilientCall("Monid", async () =>
+  const started = await resilientCall(sourceName, async () =>
     superagent
       .post(`${MONID_API_BASE}/v1/run`)
       .send({ provider, endpoint, input })

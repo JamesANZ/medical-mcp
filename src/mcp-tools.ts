@@ -4,7 +4,6 @@ export const MCP_TOOL_NAMES = [
   "search-drug-safety",
   "search-clinical-trials",
   "list-sources",
-  "get-drug-details",
   "get-health-statistics",
   "search-medical-literature",
   "get-article-details",

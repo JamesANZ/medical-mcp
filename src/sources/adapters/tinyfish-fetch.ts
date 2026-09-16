@@ -41,7 +41,12 @@ export async function fetchTinyFishPages(
   };
   try {
     if (hasMonidKey()) {
-      const output = await monidRun("tinyfish", "/fetch", input);
+      const output = await monidRun(
+        "tinyfish",
+        "/fetch",
+        { body: input },
+        "MonidFetch",
+      );
       return extractFetchPages(output);
     }
     const res = await resilientCall("TinyFishFetch", async () =>

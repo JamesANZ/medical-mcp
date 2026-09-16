@@ -32,6 +32,7 @@ import { getCacheConfig } from "./cache/config.js";
 import { deduplicatePapers } from "./utils/deduplication.js";
 import { searchSemanticScholar } from "./utils/semantic-scholar.js";
 import { searchEuropePmc } from "./sources/adapters/europe-pmc.js";
+import { searchClinicalTrialsApi } from "./sources/adapters/clinicaltrials.js";
 import { getRegisteredSourceHealth } from "./sources/health.js";
 import {
   hasTinyFishKey,
@@ -55,7 +56,6 @@ import {
   WHOIndicatorResponseSchema,
   WHODataResponseSchema,
   RxNormDrugGroupSchema,
-  ClinicalTrialsResponseSchema,
   safeValidate,
 } from "./validation/schemas.js";
 import { logger } from "./logger.js";
@@ -185,26 +185,6 @@ export async function searchDrugs(
   }
 
   return allResults;
-}
-
-export async function getDrugByNDC(ndc: string): Promise<DrugLabel | null> {
-  try {
-    const res = await resilientCall("FDA", async () =>
-      superagent
-        .get(`${FDA_API_BASE}/drug/label.json`)
-        .query({
-          search: `openfda.product_ndc:${ndc}`,
-          limit: 1,
-        })
-        .set("User-Agent", USER_AGENT)
-        .timeout({ response: 15_000, deadline: 30_000 }),
-    );
-
-    const validated = safeValidate(FDASearchResponseSchema, res.body, "FDA");
-    return (validated.results?.[0] as DrugLabel) || null;
-  } catch (error) {
-    return null;
-  }
 }
 
 export async function getHealthIndicators(
@@ -610,169 +590,6 @@ export function formatDrugSearchResults(
 
     result += `   Last Updated: ${drug.effective_time}\n\n`;
   });
-
-  return createMCPResponse(appendCacheInfo(result, metadata));
-}
-
-// Helper function to format a drug section
-function formatDrugSection(
-  content: string | string[],
-  maxLength: number = 500,
-): string {
-  if (!content) return "";
-  const items = Array.isArray(content) ? content : [content];
-  return items
-    .map((item) => {
-      if (item.length > maxLength) {
-        return item.substring(0, maxLength) + "...";
-      }
-      return item;
-    })
-    .join("\n\n");
-}
-
-export function formatDrugDetails(
-  drug: any,
-  ndc: string,
-  metadata?: CacheMetadata,
-) {
-  if (!drug) {
-    return createMCPResponse(
-      appendCacheInfo(`No drug found with NDC: ${ndc}`, metadata),
-    );
-  }
-
-  let result = `**Drug Details for NDC: ${ndc}**\n\n`;
-
-  // Basic Information (always displayed)
-  result += `**Basic Information:**\n`;
-  result += `- Brand Name: ${drug.openfda?.brand_name?.[0] || "Not specified"}\n`;
-  result += `- Generic Name: ${drug.openfda?.generic_name?.[0] || "Not specified"}\n`;
-  result += `- Manufacturer: ${drug.openfda?.manufacturer_name?.[0] || "Not specified"}\n`;
-  result += `- Route: ${drug.openfda?.route?.[0] || "Not specified"}\n`;
-  result += `- Dosage Form: ${drug.openfda?.dosage_form?.[0] || "Not specified"}\n`;
-  if (drug.openfda?.substance_name?.[0]) {
-    result += `- Active Substance: ${drug.openfda.substance_name[0]}\n`;
-  }
-  result += `- Last Updated: ${drug.effective_time || "Not specified"}\n\n`;
-
-  // Define section priority order and display names
-  const sectionMap: Array<{
-    key: string;
-    displayName: string;
-    priority: number;
-  }> = [
-    {
-      key: "indications_and_usage",
-      displayName: "Indications and Usage",
-      priority: 1,
-    },
-    { key: "purpose", displayName: "Purpose/Uses", priority: 2 },
-    { key: "description", displayName: "Description", priority: 3 },
-    { key: "warnings", displayName: "Warnings", priority: 4 },
-    { key: "contraindications", displayName: "Contraindications", priority: 5 },
-    {
-      key: "dosage_and_administration",
-      displayName: "Dosage and Administration",
-      priority: 6,
-    },
-    { key: "adverse_reactions", displayName: "Adverse Reactions", priority: 7 },
-    { key: "drug_interactions", displayName: "Drug Interactions", priority: 8 },
-    {
-      key: "use_in_specific_populations",
-      displayName: "Use in Specific Populations",
-      priority: 9,
-    },
-    { key: "overdosage", displayName: "Overdosage", priority: 10 },
-    {
-      key: "clinical_pharmacology",
-      displayName: "Clinical Pharmacology",
-      priority: 11,
-    },
-    {
-      key: "nonclinical_toxicology",
-      displayName: "Nonclinical Toxicology",
-      priority: 12,
-    },
-    { key: "clinical_studies", displayName: "Clinical Studies", priority: 13 },
-    {
-      key: "drug_abuse_and_dependence",
-      displayName: "Drug Abuse and Dependence",
-      priority: 14,
-    },
-    {
-      key: "storage_and_handling",
-      displayName: "Storage and Handling",
-      priority: 15,
-    },
-    {
-      key: "patient_counseling_information",
-      displayName: "Patient Counseling Information",
-      priority: 16,
-    },
-  ];
-
-  // Collect all available sections
-  const availableSections = sectionMap
-    .filter((section) => {
-      const value = drug[section.key];
-      return (
-        value &&
-        (Array.isArray(value) ? value.length > 0 : value.trim().length > 0)
-      );
-    })
-    .sort((a, b) => a.priority - b.priority);
-
-  // Display sections in priority order
-  for (const section of availableSections) {
-    const content = drug[section.key];
-    result += `**${section.displayName}:**\n`;
-    if (Array.isArray(content)) {
-      content.forEach((item: string, index: number) => {
-        result += `${index + 1}. ${formatDrugSection(item, 800)}\n`;
-      });
-    } else {
-      result += `${formatDrugSection(content, 800)}\n`;
-    }
-    result += "\n";
-  }
-
-  // Handle any other top-level keys not in our predefined list
-  const handledKeys = new Set([
-    "openfda",
-    "effective_time",
-    ...sectionMap.map((s) => s.key),
-  ]);
-  const otherKeys = Object.keys(drug).filter(
-    (key) =>
-      !handledKeys.has(key) && drug[key] !== null && drug[key] !== undefined,
-  );
-
-  if (otherKeys.length > 0) {
-    result += `**Additional Information:**\n`;
-    for (const key of otherKeys) {
-      const value = drug[key];
-      if (
-        value &&
-        (Array.isArray(value)
-          ? value.length > 0
-          : String(value).trim().length > 0)
-      ) {
-        const displayKey = key
-          .split("_")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
-        result += `- ${displayKey}: ${formatDrugSection(value, 300)}\n`;
-      }
-    }
-    result += "\n";
-  }
-
-  // Note if no additional sections are available
-  if (availableSections.length === 0 && otherKeys.length === 0) {
-    result += `*No additional detailed information sections available for this drug.\n`;
-    result += `Basic information is displayed above. For more details, please consult the full FDA label or a healthcare provider.*\n\n`;
-  }
 
   return createMCPResponse(appendCacheInfo(result, metadata));
 }
@@ -1571,6 +1388,21 @@ function extractDOI(textSources: string[]): string {
   return "";
 }
 
+function pubmedToScholarArticles(
+  articles: PubMedArticle[],
+): GoogleScholarArticle[] {
+  return articles.map((article) => ({
+    title: article.title,
+    authors: article.authors.join(", "),
+    abstract: article.abstract,
+    journal: article.journal,
+    year: article.publication_date.split("-")[0],
+    citations: "",
+    url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+    doi: article.doi,
+  }));
+}
+
 export async function searchGoogleScholar(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
@@ -1603,11 +1435,24 @@ export async function searchGoogleScholar(
       "GoogleScholar",
       "TinyFish returned no papers; falling back to Semantic Scholar.",
     );
-    return searchSemanticScholar(query, 10);
+  } else {
+    logger.info(
+      "GoogleScholar",
+      "No Monid/TinyFish key; using Semantic Scholar",
+    );
   }
 
-  logger.info("GoogleScholar", "No Monid/TinyFish key; using Semantic Scholar");
-  return searchSemanticScholar(query, 10);
+  const semantic = await searchSemanticScholar(query, 10);
+  if (semantic.length > 0) {
+    return semantic;
+  }
+
+  logger.warn(
+    "GoogleScholar",
+    "Semantic Scholar returned no papers; falling back to PubMed.",
+  );
+  const pubmed = await searchPubMedArticles(query, 10);
+  return pubmedToScholarArticles(pubmed);
 }
 
 export async function searchMedicalDatabases(
@@ -1620,7 +1465,7 @@ export async function searchMedicalDatabases(
     searchPubMedArticles(query, 5),
     searchGoogleScholar(query),
     searchCochraneLibrary(query),
-    searchClinicalTrials(query),
+    searchClinicalTrialsForDatabases(query),
     searchSemanticScholar(query, 5),
     searchEuropePmc(query, { limit: 5 }),
   ]);
@@ -1748,62 +1593,19 @@ async function searchCochraneLibrary(
   return [];
 }
 
-async function searchClinicalTrials(
+async function searchClinicalTrialsForDatabases(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
-  try {
-    logger.info("ClinicalTrials", `Searching ClinicalTrials.gov for: ${query}`);
-
-    const response = await resilientCall("ClinicalTrials", async () =>
-      superagent
-        .get("https://clinicaltrials.gov/api/v2/studies")
-        .query({
-          query: query,
-          format: "json",
-          limit: 10,
-        })
-        .set("User-Agent", USER_AGENT)
-        .timeout({ response: 15_000, deadline: 30_000 }),
-    );
-
-    const validated = safeValidate(
-      ClinicalTrialsResponseSchema,
-      response.body,
-      "ClinicalTrials",
-    );
-    const results: GoogleScholarArticle[] = [];
-
-    if (validated.studies && validated.studies.length > 0) {
-      validated.studies.forEach((study: any) => {
-        const protocolSection = study.protocolSection;
-        if (protocolSection) {
-          const identificationModule = protocolSection.identificationModule;
-          const statusModule = protocolSection.statusModule;
-
-          if (identificationModule) {
-            results.push({
-              title:
-                identificationModule.briefTitle ||
-                identificationModule.officialTitle ||
-                "Clinical Trial",
-              authors:
-                identificationModule.leadSponsor?.name || "Clinical Trial",
-              abstract: identificationModule.briefSummary || "",
-              journal: "ClinicalTrials.gov",
-              year: statusModule?.startDateStruct?.date || "",
-              citations: "",
-              url: `https://clinicaltrials.gov/study/${study.protocolSection.identificationModule.nctId}`,
-            });
-          }
-        }
-      });
-    }
-
-    return results;
-  } catch (error) {
-    console.error("Error searching ClinicalTrials.gov:", error);
-    return [];
-  }
+  const trials = await searchClinicalTrialsApi(query, { limit: 10 });
+  return trials.map((trial) => ({
+    title: trial.title,
+    authors: trial.sponsor || "Clinical Trial",
+    abstract: trial.summary || "",
+    journal: "ClinicalTrials.gov",
+    year: trial.startDate || "",
+    citations: "",
+    url: trial.url,
+  }));
 }
 
 export async function searchMedicalJournals(
@@ -2877,37 +2679,6 @@ export async function searchDrugsCached(
   };
 }
 
-// Cached version of getDrugByNDC
-export async function getDrugByNDCCached(
-  ndc: string,
-): Promise<CachedResult<DrugLabel | null>> {
-  const cacheKey = cacheManager.generateKey("FDA", "get-drug-details", {
-    ndc,
-  });
-  const cached = cacheManager.get(cacheKey);
-
-  if (cached) {
-    return {
-      data: cached.data,
-      metadata: {
-        cached: true,
-        cacheAge: getCacheAge(cached.timestamp),
-      },
-    };
-  }
-
-  const data = await getDrugByNDC(ndc);
-  cacheManager.set(cacheKey, data, config.ttls.fda, "FDA");
-
-  return {
-    data,
-    metadata: {
-      cached: false,
-      cacheAge: 0,
-    },
-  };
-}
-
 // Cached version of getHealthIndicators
 export async function getHealthIndicatorsCached(
   indicatorName: string,
@@ -3516,7 +3287,7 @@ export async function getSourceHealth(): Promise<{
       fn: async () => {
         await superagent
           .get("https://clinicaltrials.gov/api/v2/studies")
-          .query({ query: "health", format: "json", limit: 1 })
+          .query({ "query.term": "health", format: "json", pageSize: 1 })
           .set("User-Agent", USER_AGENT)
           .timeout({ response: 10_000, deadline: 15_000 });
       },
