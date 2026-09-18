@@ -13,19 +13,16 @@ export const EMA_MEDICINES_JSON_URL =
   "https://www.ema.europa.eu/en/documents/report/medicines-output-medicines_json-report_en.json";
 export const DAILYMED_API_BASE =
   "https://dailymed.nlm.nih.gov/dailymed/services/v2";
-export const EUROPE_PMC_API_BASE =
-  "https://www.ebi.ac.uk/europepmc/webservices/rest";
 export const CLINICALTRIALS_API_BASE =
   "https://clinicaltrials.gov/api/v2/studies";
 export const TINYFISH_SEARCH_API_BASE = "https://api.search.tinyfish.ai";
 export const TINYFISH_FETCH_API_BASE = "https://api.fetch.tinyfish.ai";
 export const MONID_API_BASE = "https://api.monid.ai";
-export const ANZCTR_API_BASE =
-  "https://api.anzctr.org.au/WebServices/AnzctrWebservices.asmx";
 export const USER_AGENT = "medical-mcp/2.0";
 export const MONID_API_KEY = process.env.MONID_API_KEY || "";
 export const TINYFISH_API_KEY = process.env.TINYFISH_API_KEY || "";
 export const DEFAULT_DRUG_COUNTRIES = ["US", "AU", "CA", "EU"] as const;
+export const SUPPORTED_DRUG_COUNTRIES = ["US", "AU", "CA", "EU"] as const;
 
 /**
  * NCBI API Key — optional but increases PubMed rate limit from 3/sec to 10/sec.
@@ -72,12 +69,16 @@ export const GUIDELINE_SCORE_WEIGHTS = {
   MIN_SCORE_THRESHOLD: 2.5, // Minimum score to be considered a guideline
 };
 
-// Regex patterns for organization extraction (generic patterns, not hardcoded names)
+// Regex patterns for organization extraction.
+// WHO is case-sensitive so it does not match English "who".
 export const ORG_EXTRACTION_PATTERNS = [
-  /(American|European|National|International|World|Global).*?(Association|College|Society|Academy|Institute|Foundation|Organization|Committee|Academy|Society|Ministry)/gi,
-  /(World Health Organization|WHO)/gi,
-  /(Centers for Disease Control|CDC)/gi,
-  /(National Institutes of Health|NIH)/gi,
+  /(American|European|National|International|World|Global)\s[\w\s]{0,60}?(Association|College|Society|Academy|Institute|Foundation|Organization|Committee|Ministry)/g,
+  /World Health Organization/g,
+  /\bWHO\b/g,
+  /Centers for Disease Control(?: and Prevention)?/g,
+  /\bCDC\b/g,
+  /National Institutes of Health/g,
+  /\bNIH\b/g,
 ];
 
 // Pediatric source URLs
@@ -93,16 +94,4 @@ export const PEDIATRIC_JOURNALS = [
   "Archives of Disease in Childhood",
   "European Journal of Pediatrics",
   "Pediatric Clinics of North America",
-];
-
-// WHO child health indicator codes (common pediatric indicators)
-export const WHO_CHILD_HEALTH_INDICATORS = [
-  "MDG_0000000029", // Under-five mortality rate
-  "MDG_0000000030", // Infant mortality rate
-  "MDG_0000000031", // Neonatal mortality rate
-  "MDG_0000000032", // Child mortality rate (1-4 years)
-  "MDG_0000000033", // Measles immunization coverage
-  "MDG_0000000034", // DPT3 immunization coverage
-  "WHS4_544", // Child malnutrition
-  "WHS9_86", // Exclusive breastfeeding
 ];

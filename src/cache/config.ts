@@ -14,12 +14,10 @@ export interface CacheConfig {
     brightFutures: number;
     aapPolicy: number;
     pediatricJournals: number;
-    childHealth: number;
     pediatricDrugs: number;
     regulators: number;
     safety: number;
     trials: number;
-    europePmc: number;
     tinyfish: number;
   };
 }
@@ -34,12 +32,10 @@ const DEFAULT_TTL_GOOGLE_SCHOLAR = 3600; // 1 hour
 const DEFAULT_TTL_BRIGHT_FUTURES = 2592000; // 30 days (guidelines change infrequently)
 const DEFAULT_TTL_AAP_POLICY = 604800; // 7 days
 const DEFAULT_TTL_PEDIATRIC_JOURNALS = 3600; // 1 hour (same as PubMed)
-const DEFAULT_TTL_CHILD_HEALTH = 604800; // 7 days (same as WHO)
 const DEFAULT_TTL_PEDIATRIC_DRUGS = 86400; // 24 hours (same as FDA)
 const DEFAULT_TTL_REGULATORS = 86400; // 24 hours
 const DEFAULT_TTL_SAFETY = 3600; // 1 hour
 const DEFAULT_TTL_TRIALS = 3600; // 1 hour
-const DEFAULT_TTL_EUROPE_PMC = 3600; // 1 hour
 const DEFAULT_TTL_TINYFISH = 3600; // 1 hour
 
 // Default configuration values
@@ -92,10 +88,6 @@ export function getCacheConfig(): CacheConfig {
           String(DEFAULT_TTL_PEDIATRIC_JOURNALS),
         10,
       ),
-      childHealth: parseInt(
-        process.env.CACHE_TTL_CHILD_HEALTH || String(DEFAULT_TTL_CHILD_HEALTH),
-        10,
-      ),
       pediatricDrugs: parseInt(
         process.env.CACHE_TTL_PEDIATRIC_DRUGS ||
           String(DEFAULT_TTL_PEDIATRIC_DRUGS),
@@ -111,10 +103,6 @@ export function getCacheConfig(): CacheConfig {
       ),
       trials: parseInt(
         process.env.CACHE_TTL_TRIALS || String(DEFAULT_TTL_TRIALS),
-        10,
-      ),
-      europePmc: parseInt(
-        process.env.CACHE_TTL_EUROPE_PMC || String(DEFAULT_TTL_EUROPE_PMC),
         10,
       ),
       tinyfish: parseInt(

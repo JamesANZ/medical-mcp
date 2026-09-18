@@ -22,6 +22,7 @@ export type EvidenceLevel =
   | "Case Report / Case Series"
   | "Expert Opinion / Editorial"
   | "Narrative Review"
+  | "Study Protocol"
   | "Unknown";
 
 export type EvidenceGrade = "I" | "II" | "III" | "IV" | "V" | "N/A";
@@ -45,6 +46,17 @@ interface ClassificationRule {
  * Patterns are checked against title + abstract.
  */
 const RULES: ClassificationRule[] = [
+  {
+    studyType: "Study Protocol",
+    grade: "N/A",
+    priority: 0,
+    patterns: [
+      /\bstudy\s+protocol\b/i,
+      /\bprotocol\s+for\s+a\b/i,
+      /\btrial\s+protocol\b/i,
+      /\bprotocol\s+paper\b/i,
+    ],
+  },
   {
     studyType: "Systematic Review / Meta-Analysis",
     grade: "I",

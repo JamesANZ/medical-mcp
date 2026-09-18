@@ -104,9 +104,19 @@ export function formatSafetyEvents(
   }
 
   let text = `**Drug safety results for "${query}"**\n\n`;
+  const byKind = new Map<string, number>();
+  for (const event of events) {
+    byKind.set(event.kind, (byKind.get(event.kind) || 0) + 1);
+  }
+  text += `Adverse events: ${byKind.get("adverse_event") || 0}. Recalls: ${byKind.get("recall") || 0}. Shortages: ${byKind.get("shortage") || 0}.\n`;
+  if (!byKind.get("shortage")) {
+    text += `No shortage records were returned for this query.\n`;
+  }
+  text += "\n";
   events.forEach((event, index) => {
     text += `${index + 1}. **[${event.kind}] ${event.title}**\n`;
     text += `   Source: ${event.source} (${event.country})\n`;
+    if (event.id) text += `   Report ID: ${event.id}\n`;
     if (event.date) text += `   Date: ${event.date}\n`;
     if (event.summary) text += `   ${event.summary}\n`;
     if (event.url) text += `   URL: ${event.url}\n`;

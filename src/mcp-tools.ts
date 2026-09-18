@@ -10,13 +10,10 @@ export const MCP_TOOL_NAMES = [
   "search-drug-nomenclature",
   "search-google-scholar",
   "search-clinical-guidelines",
-  "search-medical-databases",
   "search-medical-journals",
   "get-cache-stats",
   "health-check",
   "search-pediatric-guidelines",
   "search-pediatric-literature",
-  "get-child-health-statistics",
   "search-pediatric-drugs",
-  "search-aap-guidelines",
 ] as const;

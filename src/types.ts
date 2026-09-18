@@ -26,12 +26,14 @@ export type WHOIndicator = {
   TimeDimType: string;
   DataSourceDim: string;
   DataSourceType: string;
-  Value: number;
+  Value: number | string;
   NumericValue: number;
   Low: number;
   High: number;
   Comments: string;
   Date: string;
+  Sex?: string;
+  AgeGroup?: string;
 };
 
 export type RxNormDrug = {
@@ -111,22 +113,4 @@ export type PediatricJournalArticle = {
   doi?: string;
   pmc_id?: string;
   full_text?: string;
-};
-
-export type ChildHealthIndicator = {
-  IndicatorCode: string;
-  IndicatorName: string;
-  SpatialDimType: string;
-  SpatialDim: string;
-  TimeDim: string;
-  TimeDimType: string;
-  DataSourceDim: string;
-  DataSourceType: string;
-  Value: number;
-  NumericValue: number;
-  Low: number;
-  High: number;
-  Comments: string;
-  Date: string;
-  AgeGroup?: string;
 };

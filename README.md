@@ -14,7 +14,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 
 - 🔒 **Your Data Never Leaves** – Runs 100% locally; no tracking, no logs, no cloud
 - 🆓 **No API Keys** – Works out of the box, zero configuration
-- 🏥 **Authoritative Sources** – FDA, TGA, Health Canada, EMA, DailyMed, WHO, PubMed, Europe PMC, RxNorm, ClinicalTrials.gov
+- 🏥 **Authoritative Sources** – FDA, TGA, Health Canada, EMA, DailyMed, WHO, PubMed, RxNorm, ClinicalTrials.gov
 - ⚡ **Easy Setup** – One-click install in [Cursor](https://cursor.sh) or simple manual setup
 - 🔬 **Comprehensive** – Drug info, health stats, medical literature, clinical guidelines, pediatric sources
 - 🛡️ **Resilient** – Circuit breakers, retry with backoff, rate limiting, and automatic fallbacks
@@ -24,7 +24,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 ## What's New in v2.0
 
 - **Resilience Layer** – Circuit breakers per source, retry with exponential backoff + jitter, per-source token bucket rate limiters
-- **Monid web search** – Scholar, Cochrane, AAP, and PMC HTML go through Monid TinyFish (Tavily-style search/fetch). Semantic Scholar is the no-key fallback
+- **Monid web search** – Scholar, AAP, and PMC HTML go through Monid TinyFish (Tavily-style search/fetch). Semantic Scholar is the no-key fallback
 - **Evidence Grading** – PubMed and multi-database results tagged with study type (Systematic Review, RCT, Cohort, Case Report, etc.) and evidence grade (I–V)
 - **Response Validation** – Zod schemas validate all upstream API responses, logging warnings on schema drift without breaking
 - **NCBI API Key Support** – Optional `NCBI_API_KEY` env var boosts PubMed from 3 req/sec to 10 req/sec
@@ -51,9 +51,9 @@ cd medical-mcp && npm install && npm run build
 
 ### 💊 Drug Information
 
-- **`search-drugs`** – Search FDA, DailyMed, TGA (Australia), Health Canada, and EMA. Filter with `countries` (`US`, `AU`, `CA`, `EU`)
-- **`search-drug-nomenclature`** – Standardized drug names via RxNorm
-- **`search-drug-safety`** – FDA FAERS adverse events, recalls, and shortages
+- **`search-drugs`** – Search FDA, DailyMed, TGA (Australia), Health Canada, and EMA. Filter with `countries` (`US`, `AU`, `CA`, `EU`). Unsupported codes are rejected rather than returned as empty regulatory results.
+- **`search-drug-nomenclature`** – Standardized drug names via RxNorm (`limit` defaults to 25)
+- **`search-drug-safety`** – FDA FAERS adverse events (with report IDs), recalls, and shortages
 
 ### 📊 Health Statistics
 
@@ -64,22 +64,19 @@ cd medical-mcp && npm install && npm run build
 - **`search-medical-literature`** – Search 30M+ PubMed articles (with evidence grading)
 - **`get-article-details`** – Detailed article info by PMID
 - **`search-google-scholar`** – Academic papers via Monid TinyFish (`research_paper`) when `MONID_API_KEY` is set; otherwise Semantic Scholar
-- **`search-medical-databases`** – Multi-database search (PubMed, Scholar, Semantic Scholar, Cochrane, ClinicalTrials.gov, Europe PMC)
 - **`search-medical-journals`** – Top journals (NEJM, JAMA, Lancet, BMJ, Nature Medicine)
 
 ### 🏥 Clinical Tools
 
 - **`search-clinical-guidelines`** – Practice recommendations from medical organizations
-- **`search-clinical-trials`** – ClinicalTrials.gov plus Australia/New Zealand location coverage
-- **`list-sources`** – Full catalog of registry adapters and dedicated-tool sources (WHO, PubMed, RxNorm, Scholar, Cochrane, AAP), including which MCP tool reaches each. This is not the `search-drugs` five-regulator fanout.
+- **`search-clinical-trials`** – ClinicalTrials.gov
+- **`list-sources`** – Full catalog of registry adapters and dedicated-tool sources (WHO, PubMed, RxNorm, Scholar, AAP), including which MCP tool reaches each. This is not the `search-drugs` five-regulator fanout.
 
 ### 👶 Pediatric Sources
 
-- **`search-pediatric-guidelines`** – AAP guidelines and Bright Futures preventive care
+- **`search-pediatric-guidelines`** – AAP policy/clinical reports via PubMed, plus Bright Futures. Off-domain web hits are dropped; labels come from the page, not from which search ran.
 - **`search-pediatric-literature`** – Research from major pediatric journals
-- **`get-child-health-statistics`** – Pediatric health indicators from WHO
-- **`search-pediatric-drugs`** – Drugs with pediatric labeling and dosing information
-- **`search-aap-guidelines`** – Comprehensive AAP guideline search (Bright Futures + Policy Statements)
+- **`search-pediatric-drugs`** – Drugs with pediatric labeling, NDC, manufacturer, and DailyMed URL
 
 ### 🛡️ Reliability & Monitoring
 
@@ -203,7 +200,7 @@ PubMed and multi-database results are automatically classified:
 
 ### Automatic Fallback
 
-When `MONID_API_KEY` is set, Scholar/Cochrane/AAP search and PMC HTML fetch go through **Monid TinyFish**. Without a key, Scholar falls back to **Semantic Scholar's API** — free, well-structured, 100 req/sec, no API key needed.
+When `MONID_API_KEY` is set, Scholar/AAP search and PMC HTML fetch go through **Monid TinyFish**. Without a key, Scholar falls back to **Semantic Scholar's API** — free, well-structured, 100 req/sec, no API key needed.
 
 ### Response Validation
 
@@ -221,14 +218,12 @@ All upstream API responses are validated against Zod schemas. If a source change
 | **FDA FAERS / recalls / shortages** | US safety signals                        | Real-time        | Circuit breaker + retry            |
 | **WHO**                             | Global health stats (194 countries)      | Annual           | Circuit breaker + retry            |
 | **PubMed**                          | 30M+ medical citations                   | Daily            | Circuit breaker + retry + NCBI key |
-| **Europe PMC**                      | PubMed + preprints + patents             | Real-time        | Circuit breaker + retry            |
 | **RxNorm**                          | Standardized drug nomenclature (US)      | Weekly           | Circuit breaker + retry            |
 | **TinyFish via Monid**              | Research papers + domain-scoped web      | Real-time        | Optional `MONID_API_KEY`           |
 | **Semantic Scholar**                | 200M+ papers with citation data          | Real-time        | Circuit breaker + retry            |
 | **AAP**                             | Bright Futures & policy statements       | Periodic         | Graceful degradation               |
 | **Pediatric Journals**              | Major pediatric journals                 | Daily            | Circuit breaker + retry            |
-| **ClinicalTrials.gov**              | Global + AU/NZ location filter           | Real-time        | Circuit breaker + retry            |
-| **Cochrane**                        | Systematic reviews                       | Real-time        | Monid TinyFish search              |
+| **ClinicalTrials.gov**              | Interventional and observational trials  | Real-time        | Circuit breaker + retry            |
 
 ## Configuration
 
@@ -239,7 +234,7 @@ All upstream API responses are validated against Zod schemas. If a source change
 | Variable           | Default  | Description                                                                                                                                                                    |
 | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `NCBI_API_KEY`     | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)                                                                         |
-| `MONID_API_KEY`    | _(none)_ | Optional. When set, Scholar/Cochrane/AAP/PMC HTML use Monid's TinyFish search and fetch (Tavily-style web scraper). Get a key at [Monid](https://app.monid.ai/access/api-keys) |
+| `MONID_API_KEY`    | _(none)_ | Optional. When set, Scholar/AAP/PMC HTML use Monid's TinyFish search and fetch (Tavily-style web scraper). Get a key at [Monid](https://app.monid.ai/access/api-keys) |
 | `TINYFISH_API_KEY` | _(none)_ | Optional fallback if you call TinyFish directly instead of through Monid.                                                                                                      |
 | `LOG_LEVEL`        | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                                                                                                      |
 

@@ -5,7 +5,6 @@ import {
   formatHealthIndicators,
   formatPubMedArticles,
   formatGoogleScholarArticles,
-  formatMedicalDatabasesSearch,
   formatMedicalJournalsSearch,
   formatArticleDetails,
   formatRxNormDrugs,
@@ -13,7 +12,6 @@ import {
   formatBrightFuturesGuidelines,
   formatAAPPolicyStatements,
   formatPediatricJournals,
-  formatChildHealthIndicators,
   formatPediatricDrugs,
   formatAAPGuidelines,
   logSafetyWarnings,
@@ -23,15 +21,14 @@ import {
   searchRxNormDrugsCached,
   searchGoogleScholarCached,
   searchClinicalGuidelinesCached,
-  searchMedicalDatabasesCached,
   searchMedicalJournalsCached,
   searchBrightFuturesGuidelinesCached,
   searchAAPPolicyStatementsCached,
   searchPediatricJournalsCached,
-  getChildHealthIndicatorsCached,
   searchPediatricDrugsCached,
   searchAAPGuidelinesCached,
   getSourceHealth,
+  isValidPmid,
 } from "./utils.js";
 import { cacheManager } from "./cache/manager.js";
 import {
@@ -92,7 +89,7 @@ server.tool(
       .array(z.string())
       .optional()
       .describe(
-        "Jurisdiction codes to search: US, AU, CA, EU. Defaults to all first-wave regulators.",
+        "Jurisdiction codes to search: US, AU, CA, EU. Unsupported codes return an error. Defaults to all first-wave regulators.",
       ),
   },
   async ({ query, limit, countries }) => {
@@ -141,7 +138,7 @@ server.tool(
 
 server.tool(
   "search-clinical-trials",
-  "Search ClinicalTrials.gov plus Australia/New Zealand trials (ANZCTR via ClinicalTrials.gov location filters)",
+  "Search ClinicalTrials.gov for trials by condition, intervention, or drug",
   {
     query: z.string().describe("Condition, intervention, or drug to search"),
     limit: z
@@ -151,7 +148,7 @@ server.tool(
       .max(25)
       .optional()
       .default(10)
-      .describe("Number of results to return per registry"),
+      .describe("Number of results to return"),
   },
   async ({ query, limit }) => {
     try {
@@ -245,12 +242,20 @@ server.tool(
 
 server.tool(
   "get-article-details",
-  "Get detailed information about a specific medical article by PMID",
+  "Get detailed information about a specific medical article by PMID. Full text is attached only when the PMC record's PMID/DOI matches this article.",
   {
     pmid: z.string().describe("PubMed ID (PMID) of the article"),
   },
   async ({ pmid }) => {
     try {
+      if (!isValidPmid(pmid)) {
+        return createErrorResponse(
+          "fetching article details",
+          new Error(
+            `Invalid PMID "${pmid}". A PMID must be 1–10 digits, e.g. 42742671.`,
+          ),
+        );
+      }
       const result = await getPubMedArticleByPMIDCached(pmid);
       return formatArticleDetails(result.data, pmid, result.metadata);
     } catch (error: any) {
@@ -264,10 +269,18 @@ server.tool(
   "Search for drug information using RxNorm (standardized drug nomenclature)",
   {
     query: z.string().describe("Drug name to search for in RxNorm database"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .default(25)
+      .describe("Maximum number of RxNorm concepts to return (max 50)"),
   },
-  async ({ query }) => {
+  async ({ query, limit }) => {
     try {
-      const result = await searchRxNormDrugsCached(query);
+      const result = await searchRxNormDrugsCached(query, limit);
       return formatRxNormDrugs(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching RxNorm", error);
@@ -318,27 +331,6 @@ server.tool(
       );
     } catch (error: any) {
       return createErrorResponse("searching clinical guidelines", error);
-    }
-  },
-);
-
-// Enhanced Medical Database Search Tool
-server.tool(
-  "search-medical-databases",
-  "Search across multiple medical databases (PubMed, Google Scholar, Cochrane, ClinicalTrials.gov) for comprehensive results",
-  {
-    query: z
-      .string()
-      .describe(
-        "Medical topic or condition to search for across multiple databases",
-      ),
-  },
-  async ({ query }) => {
-    try {
-      const result = await searchMedicalDatabasesCached(query);
-      return formatMedicalDatabasesSearch(result.data, query, result.metadata);
-    } catch (error: any) {
-      return createErrorResponse("searching medical databases", error);
     }
   },
 );
@@ -425,10 +417,12 @@ server.tool(
         text += `\n`;
       }
 
+      text += `\nScraped sources (Google Scholar, AAP) are reached via TinyFish when MONID_API_KEY is set; they are not pinged separately.\n`;
+
       // NCBI API key
       text += `\n## Configuration\n\n`;
       text += `NCBI API Key: ${health.ncbiApiKey ? "✅ Configured (10 req/sec PubMed)" : "❌ Not set (3 req/sec PubMed — set NCBI_API_KEY for 3x throughput)"}\n`;
-      text += `Monid API Key: ${health.monidApiKey || MONID_API_KEY ? "✅ Configured (TinyFish search/fetch via Monid)" : "❌ Not set — Scholar/Cochrane/AAP use Semantic Scholar or skip. Set MONID_API_KEY at https://app.monid.ai/access/api-keys"}\n`;
+      text += `Monid API Key: ${health.monidApiKey || MONID_API_KEY ? "✅ Configured (TinyFish search/fetch via Monid)" : "❌ Not set — Scholar/AAP use Semantic Scholar or skip. Set MONID_API_KEY at https://app.monid.ai/access/api-keys"}\n`;
 
       // Circuit breakers
       if (health.circuitBreakers.length > 0) {
@@ -466,7 +460,7 @@ server.tool(
 // Pediatric Source Tools
 server.tool(
   "search-pediatric-guidelines",
-  "Search for pediatric guidelines from AAP (Bright Futures and Policy Statements)",
+  "Search AAP pediatric guidelines. Policy statements and clinical reports come from PubMed (Pediatrics / AAP corporate author). Bright Futures and publications.aap.org web hits are kept only if the URL is on an AAP host with a real article path.",
   {
     query: z
       .string()
@@ -532,47 +526,6 @@ server.tool(
 );
 
 server.tool(
-  "get-child-health-statistics",
-  "Get pediatric health statistics and indicators from WHO Global Health Observatory",
-  {
-    indicator: z
-      .string()
-      .describe(
-        "Health indicator to search for (e.g., 'Child mortality', 'Infant mortality', 'Immunization')",
-      ),
-    country: z
-      .string()
-      .optional()
-      .describe("Country code (e.g., 'USA', 'GBR') - optional"),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(20)
-      .optional()
-      .default(10)
-      .describe("Number of results to return (max 20)"),
-  },
-  async ({ indicator, country, limit }) => {
-    try {
-      const result = await getChildHealthIndicatorsCached(
-        indicator,
-        country,
-        limit,
-      );
-      return formatChildHealthIndicators(
-        result.data,
-        indicator,
-        country,
-        result.metadata,
-      );
-    } catch (error: any) {
-      return createErrorResponse("fetching child health statistics", error);
-    }
-  },
-);
-
-server.tool(
   "search-pediatric-drugs",
   "Search for drugs with pediatric labeling and dosing information from FDA database",
   {
@@ -594,24 +547,6 @@ server.tool(
       return formatPediatricDrugs(result.data, query, result.metadata);
     } catch (error: any) {
       return createErrorResponse("searching pediatric drugs", error);
-    }
-  },
-);
-
-server.tool(
-  "search-aap-guidelines",
-  "Comprehensive search for AAP guidelines combining Bright Futures and Policy Statements",
-  {
-    query: z
-      .string()
-      .describe("Medical condition or topic to search for AAP guidelines"),
-  },
-  async ({ query }) => {
-    try {
-      const result = await searchAAPGuidelinesCached(query);
-      return formatAAPGuidelines(result.data, query, result.metadata);
-    } catch (error: any) {
-      return createErrorResponse("searching AAP guidelines", error);
     }
   },
 );

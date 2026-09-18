@@ -59,6 +59,7 @@ export interface SafetyEvent {
   summary?: string;
   date?: string;
   url?: string;
+  id?: string;
 }
 
 export interface ClinicalTrial {

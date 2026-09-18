@@ -99,7 +99,7 @@ describe("mappers", () => {
     );
     expect(event.summary).toContain("ATORVASTATIN");
     expect(event.summary).toMatch(/Drugs: ATORVASTATIN,/);
-    expect(event.summary).not.toContain("VORICONAZOLE");
+    expect(event.id).toBeUndefined();
   });
 
   test("includes shortage availability and related_info", () => {
@@ -134,51 +134,27 @@ describe("dedupe helpers", () => {
     ]);
   });
 
-  test("dedupes trials on NCT and marks AU/NZ overlap", () => {
-    const global: ClinicalTrial = {
+  test("dedupes trials on NCT id and keeps the first row", () => {
+    const first: ClinicalTrial = {
       source: "ClinicalTrials.gov",
       country: "US",
       title: "Melanoma study",
       id: "NCT01234567",
     };
-    const anz: ClinicalTrial = {
-      source: "ANZCTR via ClinicalTrials.gov",
-      country: "AU",
-      title: "Melanoma study",
+    const duplicate: ClinicalTrial = {
+      source: "ClinicalTrials.gov",
+      country: "US",
+      title: "Melanoma study duplicate",
       id: "NCT01234567",
     };
     const other: ClinicalTrial = {
-      source: "ANZCTR via ClinicalTrials.gov",
-      country: "NZ",
-      title: "Local only",
-      id: "NCT99999999",
-    };
-    const merged = dedupeTrials([global, anz, other]);
-    expect(merged).toHaveLength(2);
-    expect(merged[0]).toMatchObject({
-      id: "NCT01234567",
-      source: "ClinicalTrials.gov (AU/NZ site)",
-    });
-    expect(merged[1].id).toBe("NCT99999999");
-  });
-
-  test("prefers the global trial row regardless of pass order", () => {
-    const global: ClinicalTrial = {
       source: "ClinicalTrials.gov",
       country: "US",
-      title: "Global title",
-      id: "NCT1",
+      title: "Other study",
+      id: "NCT99999999",
     };
-    const anz: ClinicalTrial = {
-      source: "ANZCTR via ClinicalTrials.gov",
-      country: "AU",
-      title: "ANZ title",
-      id: "NCT1",
-    };
-    const merged = dedupeTrials([anz, global]);
-    expect(merged).toEqual([
-      { ...global, source: "ClinicalTrials.gov (AU/NZ site)" },
-    ]);
+    const merged = dedupeTrials([first, duplicate, other]);
+    expect(merged).toEqual([first, other]);
   });
 
   test("dedupes shortages on title plus date and keeps other kinds", () => {
@@ -244,7 +220,6 @@ describe("source catalog", () => {
         "pubmed",
         "rxnorm",
         "google-scholar",
-        "cochrane",
         "aap",
       ]),
     );
@@ -257,9 +232,12 @@ describe("source catalog", () => {
     expect(catalog.find((row) => row.id === "tinyfish-fetch")?.exposed).toBe(
       false,
     );
+    expect(ids).not.toContain("anzctr");
+    expect(ids).not.toContain("europe-pmc");
+    expect(ids).not.toContain("cochrane");
 
     const text = formatSourceCatalog(catalog).content[0].text;
-    expect(text).toContain("MCP tools on this server (19)");
+    expect(text).toContain("MCP tools on this server (16)");
     expect(text).toContain("`search-drugs`");
     expect(text).toContain("`search-medical-literature`");
     expect(text).toContain(

@@ -2,6 +2,7 @@ import superagent from "superagent";
 import { FDA_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
+import { formatCompactDate } from "../../utils/text.js";
 import { timedHealthCheck } from "../http.js";
 import { openFdaAnyFieldAnd, tokenize } from "../query.js";
 import type { SafetyEvent, SearchOpts, SourceAdapter } from "../types.js";
@@ -13,6 +14,7 @@ const FAERS_DRUG_FIELDS = [
 ];
 
 type FaersEvent = {
+  safetyreportid?: string;
   receiptdate?: string;
   serious?: string;
   patient?: {
@@ -47,20 +49,32 @@ export function mapFaersEvent(event: FaersEvent, query: string): SafetyEvent {
       .filter((name): name is string => Boolean(name)),
     query,
   );
+  const tokens = tokenize(query).map((token) => token.toLowerCase());
+  const hasQueryDrug =
+    tokens.length === 0 ||
+    drugs.some((drug) =>
+      tokens.some((token) => drug.toLowerCase().includes(token)),
+    );
   return {
     source: "FDA FAERS",
     country: "US",
     kind: "adverse_event",
+    id: event.safetyreportid,
     title: reactions[0] || `Adverse event report for ${query}`,
     summary: [
-      drugs.length ? `Drugs: ${drugs.slice(0, 5).join(", ")}` : "",
+      drugs.length ? `Drugs: ${drugs.slice(0, 8).join(", ")}` : "",
       reactions.length ? `Reactions: ${reactions.slice(0, 5).join(", ")}` : "",
       event.serious === "1" ? "Serious report" : "",
+      !hasQueryDrug
+        ? `Queried drug "${query}" was not among the named products in this report`
+        : "",
     ]
       .filter(Boolean)
       .join(". "),
-    date: event.receiptdate,
-    url: `https://open.fda.gov/apis/drug/event/`,
+    date: formatCompactDate(event.receiptdate),
+    url: event.safetyreportid
+      ? `https://api.fda.gov/drug/event.json?search=safetyreportid:"${encodeURIComponent(event.safetyreportid)}"`
+      : undefined,
   };
 }
 

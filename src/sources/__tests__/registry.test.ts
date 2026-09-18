@@ -9,6 +9,7 @@ import {
   extractTinyFishResults,
   toMonidSearchInput,
 } from "../adapters/tinyfish-search.js";
+import { searchInternationalDrugs } from "../search-drugs.js";
 import { formatRegulatoryProducts } from "../format.js";
 import type { RegulatoryProduct, SourceAdapter } from "../types.js";
 
@@ -41,6 +42,12 @@ describe("source registry", () => {
     expect(au.map((source) => source.id)).toEqual(["tga-artg"]);
     const us = listSources({ domain: "regulator", countries: ["US"] });
     expect(us.map((source) => source.id)).toEqual(["fda", "dailymed"]);
+  });
+
+  test("rejects unsupported drug country codes", async () => {
+    await expect(
+      searchInternationalDrugs("metformin", 5, ["NZ"]),
+    ).rejects.toThrow(/Unsupported country code\(s\): NZ/);
   });
 
   test("fanout merges successes and isolates failures", async () => {

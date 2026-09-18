@@ -131,38 +131,7 @@ export function dedupeBy<T>(
 }
 
 export function dedupeTrials(trials: ClinicalTrial[]): ClinicalTrial[] {
-  const anzIds = new Set<string>();
-  for (const trial of trials) {
-    if (trial.id && trial.source.startsWith("ANZCTR")) {
-      anzIds.add(trial.id);
-    }
-  }
-
-  const byId = new Map<string, ClinicalTrial>();
-  const noId: ClinicalTrial[] = [];
-  for (const trial of trials) {
-    if (!trial.id) {
-      noId.push(trial);
-      continue;
-    }
-    const existing = byId.get(trial.id);
-    if (
-      !existing ||
-      (existing.source.startsWith("ANZCTR") &&
-        trial.source === "ClinicalTrials.gov")
-    ) {
-      byId.set(trial.id, trial);
-    }
-  }
-
-  return [
-    ...[...byId.values()].map((trial) =>
-      trial.id && anzIds.has(trial.id) && trial.source === "ClinicalTrials.gov"
-        ? { ...trial, source: "ClinicalTrials.gov (AU/NZ site)" }
-        : trial,
-    ),
-    ...noId,
-  ];
+  return dedupeBy(trials, (trial) => trial.id);
 }
 
 export function shortageDedupeKey(event: SafetyEvent): string {

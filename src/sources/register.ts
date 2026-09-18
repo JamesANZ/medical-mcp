@@ -1,8 +1,6 @@
-import { anzctrAdapter } from "./adapters/anzctr.js";
 import { clinicalTrialsAdapter } from "./adapters/clinicaltrials.js";
 import { dailyMedAdapter } from "./adapters/dailymed.js";
 import { emaAdapter } from "./adapters/ema.js";
-import { europePmcAdapter } from "./adapters/europe-pmc.js";
 import { faersAdapter } from "./adapters/faers.js";
 import { fdaAdapter } from "./adapters/fda.js";
 import { healthCanadaAdapter } from "./adapters/health-canada.js";
@@ -22,7 +20,7 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
     domain: "public_health",
     access: "rest",
     requiresKey: false,
-    tools: ["get-health-statistics", "get-child-health-statistics"],
+    tools: ["get-health-statistics"],
     exposed: true,
   },
   {
@@ -36,7 +34,6 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
       "search-medical-literature",
       "get-article-details",
       "search-clinical-guidelines",
-      "search-medical-databases",
       "search-pediatric-literature",
     ],
     exposed: true,
@@ -58,7 +55,7 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
     domain: "literature",
     access: "scrape",
     requiresKey: false,
-    tools: ["search-google-scholar", "search-medical-databases"],
+    tools: ["search-google-scholar"],
     exposed: true,
   },
   {
@@ -68,17 +65,7 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
     domain: "literature",
     access: "rest",
     requiresKey: false,
-    tools: ["search-google-scholar", "search-medical-databases"],
-    exposed: true,
-  },
-  {
-    id: "cochrane",
-    name: "Cochrane",
-    country: "INTL",
-    domain: "literature",
-    access: "scrape",
-    requiresKey: false,
-    tools: ["search-medical-databases"],
+    tools: ["search-google-scholar"],
     exposed: true,
   },
   {
@@ -88,7 +75,7 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
     domain: "guidelines",
     access: "scrape",
     requiresKey: false,
-    tools: ["search-pediatric-guidelines", "search-aap-guidelines"],
+    tools: ["search-pediatric-guidelines"],
     exposed: true,
   },
 ];
@@ -100,20 +87,16 @@ function toolsForAdapter(adapter: SourceAdapter<unknown>): {
   switch (adapter.id) {
     case "tinyfish-fetch":
       return { tools: [], exposed: false };
-    case "europe-pmc":
-      return { tools: ["search-medical-databases"], exposed: true };
     case "tinyfish-search":
       return {
-        tools: ["search-google-scholar", "search-medical-databases"],
+        tools: ["search-google-scholar", "search-pediatric-guidelines"],
         exposed: true,
       };
     case "clinicaltrials":
       return {
-        tools: ["search-clinical-trials", "search-medical-databases"],
+        tools: ["search-clinical-trials"],
         exposed: true,
       };
-    case "anzctr":
-      return { tools: ["search-clinical-trials"], exposed: true };
     default:
       if (adapter.domain === "regulator") {
         return { tools: ["search-drugs"], exposed: true };
@@ -146,8 +129,6 @@ export function registerDefaultSources(): void {
     recallsAdapter,
     shortagesAdapter,
     clinicalTrialsAdapter,
-    anzctrAdapter,
-    europePmcAdapter,
     tinyFishSearchAdapter,
     tinyFishFetchAdapter,
   ];

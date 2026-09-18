@@ -8,7 +8,6 @@ import {
   GuidelineScore,
   PediatricGuideline,
   PediatricJournalArticle,
-  ChildHealthIndicator,
 } from "./types.js";
 import superagent from "superagent";
 import {
@@ -21,24 +20,40 @@ import {
   GUIDELINE_PUBLICATION_TYPES,
   GUIDELINE_KEYWORDS,
   GUIDELINE_SCORE_WEIGHTS,
-  ORG_EXTRACTION_PATTERNS,
   PEDIATRIC_JOURNALS,
-  WHO_CHILD_HEALTH_INDICATORS,
   NCBI_API_KEY,
   MONID_API_KEY,
 } from "./constants.js";
+import {
+  classifyAapResult,
+  isAllowedAapUrl,
+  normalizeAapUrl,
+} from "./utils/aap-urls.js";
+import {
+  organizationFilterMatches,
+  ORG_EXTRACTION_PATTERNS,
+} from "./utils/organization.js";
+import {
+  parsePubMedXML,
+  pmcRecordMatchesArticle,
+} from "./utils/pubmed-xml.js";
+import {
+  formatCompactDate,
+  isValidPmid,
+  quoteMultiWordQuery,
+  redactEmails,
+  truncateWithNotice,
+} from "./utils/text.js";
+import { mapWhoDataValue, sortWhoValues } from "./utils/who-gho.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
 import { deduplicatePapers } from "./utils/deduplication.js";
 import { searchSemanticScholar } from "./utils/semantic-scholar.js";
-import { searchEuropePmc } from "./sources/adapters/europe-pmc.js";
-import { searchClinicalTrialsApi } from "./sources/adapters/clinicaltrials.js";
 import { getRegisteredSourceHealth } from "./sources/health.js";
 import {
   hasTinyFishKey,
   searchTinyFish,
 } from "./sources/adapters/tinyfish-search.js";
-import { fetchTinyFishPages } from "./sources/adapters/tinyfish-fetch.js";
 import { TINYFISH_API_KEY } from "./constants.js";
 import {
   classifyEvidence,
@@ -59,6 +74,9 @@ import {
   safeValidate,
 } from "./validation/schemas.js";
 import { logger } from "./logger.js";
+
+export { parsePubMedXML } from "./utils/pubmed-xml.js";
+export { isValidPmid } from "./utils/text.js";
 
 export function logSafetyWarnings() {
   // Add global safety warning
@@ -256,9 +274,9 @@ export async function getHealthIndicators(
           dataFilter = `SpatialDim eq '${country}'`;
         }
 
-        const queryParams: any = {
+        const queryParams: Record<string, string | number> = {
           $format: "json",
-          $top: 50, // Limit results
+          $top: 50,
         };
 
         if (dataFilter) {
@@ -270,85 +288,22 @@ export async function getHealthIndicators(
           .query(queryParams)
           .set("User-Agent", USER_AGENT);
 
-        const dataValues = dataRes.body.value || [];
+        const dataValidated = safeValidate(
+          WHODataResponseSchema,
+          dataRes.body,
+          "WHO",
+        );
+        const dataValues = dataValidated.value || [];
 
-        // Group data by country and get the most recent values
-        const countryData = new Map();
-        dataValues.forEach((item: any) => {
-          const country = item.SpatialDim || "Global";
-          const year = item.TimeDim || "Unknown";
-          const value = item.NumericValue;
-
-          if (value !== null && value !== undefined) {
-            if (
-              !countryData.has(country) ||
-              year > countryData.get(country).year
-            ) {
-              countryData.set(country, {
-                country,
-                year,
-                value,
-                indicator: indicator.IndicatorName,
-                unit: item.Unit || "Unknown",
-              });
-            }
+        for (const item of dataValues) {
+          const mapped = mapWhoDataValue(item, {
+            IndicatorCode: indicator.IndicatorCode,
+            IndicatorName: indicator.IndicatorName || "Unknown Indicator",
+          });
+          if (mapped) {
+            results.push(mapped);
           }
-        });
-
-        // Add the data to results with better formatting
-        dataValues.forEach((item: any) => {
-          // Extract full indicator name with all context from API
-          const fullIndicatorName =
-            indicator.IndicatorName || "Unknown Indicator";
-          const unit = item.Unit || "Unknown";
-          const value = item.NumericValue;
-          const country = item.SpatialDim || "Global";
-          const year = item.TimeDim || "Unknown";
-          const ageGroup = item.AgeGroup || item.Age || "";
-          const sex = item.Sex || item.Gender || "";
-          const low = item.Low || item.LowerBound || 0;
-          const high = item.High || item.UpperBound || 0;
-
-          if (value !== null && value !== undefined) {
-            // Format the value with unit
-            let formattedValue = value;
-            if (unit && unit !== "Unknown") {
-              formattedValue = `${value} ${unit}`;
-            }
-
-            // Build descriptive comments with full context
-            const commentParts: string[] = [];
-            if (unit && unit !== "Unknown") {
-              commentParts.push(`Unit: ${unit}`);
-            }
-            if (year && year !== "Unknown") {
-              commentParts.push(`Year: ${year}`);
-            }
-            if (ageGroup) {
-              commentParts.push(`Age Group: ${ageGroup}`);
-            }
-            if (sex) {
-              commentParts.push(`Sex: ${sex}`);
-            }
-
-            results.push({
-              IndicatorCode: indicator.IndicatorCode,
-              IndicatorName: fullIndicatorName, // Use full indicator name from API
-              SpatialDimType: item.SpatialDimType || "Country",
-              SpatialDim: country,
-              TimeDim: year.toString(),
-              TimeDimType: item.TimeDimType || "Year",
-              DataSourceDim: item.DataSourceDim || "WHO",
-              DataSourceType: item.DataSourceType || "Official",
-              Value: formattedValue,
-              NumericValue: value,
-              Low: low,
-              High: high,
-              Comments: commentParts.join(" | ") || "No additional context",
-              Date: item.Date || new Date().toISOString(),
-            });
-          }
-        });
+        }
       } catch (dataError) {
         console.error(
           `Error fetching data for indicator ${indicator.IndicatorCode}:`,
@@ -374,7 +329,7 @@ export async function getHealthIndicators(
       }
     }
 
-    return results;
+    return sortWhoValues(results);
   } catch (error) {
     console.error("Error fetching WHO indicators:", error);
     return [];
@@ -426,7 +381,10 @@ function getIndicatorVariations(indicatorName: string): string[] {
   return [...new Set(variations)];
 }
 
-export async function searchRxNormDrugs(query: string): Promise<RxNormDrug[]> {
+export async function searchRxNormDrugs(
+  query: string,
+  limit: number = 25,
+): Promise<RxNormDrug[]> {
   try {
     const res = await resilientCall("RxNorm", async () =>
       superagent
@@ -472,7 +430,25 @@ export async function searchRxNormDrugs(query: string): Promise<RxNormDrug[]> {
       }
     }
 
-    return results;
+    const ttyOrder = ["IN", "PIN", "BN", "SCD", "SBD", "GPCK", "BPCK"];
+    const isCombination = (name: string) => / \/ /.test(name);
+    const strength = (name: string) => {
+      const match = name.match(/(\d+(?:\.\d+)?)\s*(mg|mcg|g|ml)\b/i);
+      return match ? parseFloat(match[1]) : Number.POSITIVE_INFINITY;
+    };
+    results.sort((a, b) => {
+      const ttyA = ttyOrder.indexOf(a.tty);
+      const ttyB = ttyOrder.indexOf(b.tty);
+      const ttyCmp = (ttyA === -1 ? 99 : ttyA) - (ttyB === -1 ? 99 : ttyB);
+      if (ttyCmp !== 0) return ttyCmp;
+      const comboCmp = Number(isCombination(a.name)) - Number(isCombination(b.name));
+      if (comboCmp !== 0) return comboCmp;
+      const strengthCmp = strength(a.name) - strength(b.name);
+      if (strengthCmp !== 0) return strengthCmp;
+      return a.name.localeCompare(b.name, undefined, { numeric: true });
+    });
+
+    return results.slice(0, limit);
   } catch (error) {
     console.error("Error searching RxNorm drugs:", error);
     return [];
@@ -713,7 +689,7 @@ export function formatHealthIndicators(
   }
   result += `Found ${indicators.length} data point(s) across ${categorized.size} category/categories\n\n`;
 
-  // Sort categories by priority (Life Expectancy first, then others)
+    // Sort categories by priority (Life Expectancy first, then others)
   const categoryOrder = [
     "Life Expectancy - At Birth",
     "Life Expectancy - Healthy",
@@ -729,9 +705,10 @@ export function formatHealthIndicators(
     "General",
   ];
 
+  let remaining = limit;
   let itemIndex = 1;
   for (const category of categoryOrder) {
-    if (!categorized.has(category)) continue;
+    if (!categorized.has(category) || remaining <= 0) continue;
 
     const categoryData = categorized.get(category)!;
     const categoryIndicators = categoryData.indicators;
@@ -740,22 +717,29 @@ export function formatHealthIndicators(
       result += `*${categoryData.explanation}*\n\n`;
     }
 
-    // Sort within category: most recent first, then by value
-    const sorted = categoryIndicators
-      .sort((a, b) => {
-        // First by year (most recent first)
-        const yearA = parseInt(a.TimeDim) || 0;
-        const yearB = parseInt(b.TimeDim) || 0;
-        if (yearB !== yearA) return yearB - yearA;
-        // Then by numeric value (higher first for life expectancy, lower for mortality)
-        return b.NumericValue - a.NumericValue;
-      })
-      .slice(0, Math.min(limit, categoryIndicators.length));
+    const sorted = [...categoryIndicators].sort((a, b) => {
+      const yearA = parseInt(a.TimeDim, 10) || 0;
+      const yearB = parseInt(b.TimeDim, 10) || 0;
+      if (yearB !== yearA) return yearB - yearA;
+      const sexOrder = (sex?: string) =>
+        sex === "Both sexes" ? 0 : sex === "Female" ? 1 : sex === "Male" ? 2 : 3;
+      const sexCmp = sexOrder(a.Sex) - sexOrder(b.Sex);
+      if (sexCmp !== 0) return sexCmp;
+      return (b.NumericValue || 0) - (a.NumericValue || 0);
+    });
+    const sliced = sorted.slice(0, remaining);
+    remaining -= sliced.length;
 
-    sorted.forEach((ind) => {
-      result += `${itemIndex}. **${ind.IndicatorName}**\n`;
+    sliced.forEach((ind) => {
+      result += `${itemIndex}. **${ind.IndicatorName || indicator}**\n`;
       result += `   Country: ${ind.SpatialDim}\n`;
       result += `   Value: **${ind.Value}**\n`;
+      if (ind.Sex) {
+        result += `   Sex: ${ind.Sex}\n`;
+      }
+      if (ind.AgeGroup) {
+        result += `   Age Group: ${ind.AgeGroup}\n`;
+      }
       if (ind.Comments && ind.Comments !== "No additional context") {
         result += `   Context: ${ind.Comments}\n`;
       }
@@ -870,48 +854,6 @@ function addDataNote(result: string) {
   return result;
 }
 
-export function formatMedicalDatabasesSearch(
-  articles: any[],
-  query: string,
-  metadata?: CacheMetadata,
-  dedupStats?: {
-    totalResults: number;
-    uniqueResults: number;
-    duplicatesRemoved: number;
-  },
-) {
-  if (articles.length === 0) {
-    return createMCPResponse(
-      appendCacheInfo(
-        `No medical articles found for "${query}" across any databases. This could be due to no results matching your query, database API rate limiting, or network connectivity issues.`,
-        metadata,
-      ),
-    );
-  }
-
-  let result = `**Comprehensive Medical Database Search: "${query}"**\n\n`;
-  if (dedupStats && dedupStats.duplicatesRemoved > 0) {
-    result += `Found ${dedupStats.uniqueResults} unique article(s) from ${dedupStats.totalResults} total results (${dedupStats.duplicatesRemoved} duplicates removed) across multiple databases\n\n`;
-  } else {
-    result += `Found ${articles.length} article(s) across multiple databases\n\n`;
-  }
-
-  articles.forEach((article, index) => {
-    result += formatArticleItem(article, index);
-  });
-
-  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
-  result += `This comprehensive search retrieves information from multiple medical databases dynamically.\n\n`;
-  result += `**DYNAMIC DATA SOURCES:**\n`;
-  result += `• PubMed (National Library of Medicine)\n`;
-  result += `• Google Scholar (Academic search)\n`;
-  result += `• Cochrane Library (Systematic reviews)\n`;
-  result += `• ClinicalTrials.gov (Clinical trials)\n`;
-  result = addDataNote(result);
-
-  return createMCPResponse(appendCacheInfo(result, metadata));
-}
-
 export function formatMedicalJournalsSearch(
   articles: any[],
   query: string,
@@ -989,7 +931,12 @@ export function formatArticleDetails(
   result += `\n**Abstract:**\n${article.abstract}\n\n`;
 
   if (article.full_text) {
-    result += `**Full Text:**\n${article.full_text}\n\n`;
+    const redacted = redactEmails(article.full_text);
+    const { text, truncated } = truncateWithNotice(redacted, 8000);
+    result += `**Full Text:**\n${text}\n\n`;
+    if (truncated) {
+      result += `**Note:** Full text truncated at 8000 characters. Visit the PMC URL above for the complete article.\n\n`;
+    }
   } else if (article.pmc_id) {
     result += `**Note:** Full text is available but could not be automatically retrieved. `;
     result += `Please visit the PMC URL above to access the complete article.\n\n`;
@@ -1186,51 +1133,6 @@ export function formatPediatricJournals(
   return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
-export function formatChildHealthIndicators(
-  indicators: ChildHealthIndicator[],
-  indicator: string,
-  country?: string,
-  metadata?: CacheMetadata,
-) {
-  if (indicators.length === 0) {
-    return createMCPResponse(
-      appendCacheInfo(
-        `No child health indicators found for "${indicator}"${country ? ` in ${country}` : ""}. Try a different search term.`,
-        metadata,
-      ),
-    );
-  }
-
-  let result = `**Child Health Statistics: ${indicator}**\n\n`;
-  if (country) {
-    result += `Country Filter: ${country}\n`;
-  }
-  result += `Found ${indicators.length} indicator(s)\n\n`;
-
-  indicators.forEach((ind, index) => {
-    result += `${index + 1}. **${ind.IndicatorName}**\n`;
-    result += `   Country: ${ind.SpatialDim}\n`;
-    result += `   Value: **${ind.Value}**\n`;
-    if (ind.AgeGroup) {
-      result += `   Age Group: ${ind.AgeGroup}\n`;
-    }
-    if (ind.Comments && ind.Comments !== "No additional context") {
-      result += `   Context: ${ind.Comments}\n`;
-    }
-    if (ind.Low && ind.High && ind.Low !== 0 && ind.High !== 0) {
-      result += `   Range: ${ind.Low} - ${ind.High}\n`;
-    }
-    result += `   Year: ${ind.TimeDim}\n`;
-    result += `   Indicator Code: ${ind.IndicatorCode}\n\n`;
-  });
-
-  result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
-  result += `Child health statistics are retrieved dynamically from WHO Global Health Observatory.\n\n`;
-  result = addDataNote(result);
-
-  return createMCPResponse(appendCacheInfo(result, metadata));
-}
-
 export function formatPediatricDrugs(
   drugs: DrugLabel[],
   query: string,
@@ -1293,7 +1195,24 @@ export function formatPediatricDrugs(
       }
     }
 
-    result += `   Effective Time: ${drug.effective_time}\n`;
+    const manufacturer = drug.openfda?.manufacturer_name?.[0];
+    const ndc = drug.openfda?.product_ndc?.[0];
+    const strength = drug.openfda?.substance_name?.[0];
+    if (manufacturer) {
+      result += `   Manufacturer: ${manufacturer}\n`;
+    }
+    if (ndc) {
+      result += `   NDC: ${ndc}\n`;
+      result += `   URL: https://dailymed.nlm.nih.gov/dailymed/search.cfm?searchterm=${encodeURIComponent(ndc)}\n`;
+    }
+    if (strength) {
+      result += `   Substance: ${strength}\n`;
+    }
+    if (drug.openfda?.dosage_form?.[0]) {
+      result += `   Form: ${drug.openfda.dosage_form[0]}\n`;
+    }
+    const effective = formatCompactDate(drug.effective_time) || drug.effective_time;
+    result += `   Effective Time: ${effective}\n`;
     result += "\n";
   });
 
@@ -1334,7 +1253,7 @@ export function formatAAPGuidelines(
 
   guidelines.forEach((guideline, index) => {
     result += `${index + 1}. **${guideline.title}**\n`;
-    result += `   Source: ${guideline.source === "bright-futures" ? "Bright Futures" : "AAP Policy Statement"}\n`;
+    result += `   Source: ${guideline.source === "bright-futures" ? "Bright Futures" : "AAP"}\n`;
     result += `   Organization: ${guideline.organization}\n`;
     if (guideline.year) {
       result += `   Year: ${guideline.year}\n`;
@@ -1455,200 +1374,45 @@ export async function searchGoogleScholar(
   return pubmedToScholarArticles(pubmed);
 }
 
-export async function searchMedicalDatabases(
-  query: string,
-): Promise<GoogleScholarArticle[]> {
-  logger.info("MedicalDatabases", `Searching medical databases for: ${query}`);
-
-  // Try multiple medical databases in parallel (including Semantic Scholar)
-  const searches = await Promise.allSettled([
-    searchPubMedArticles(query, 5),
-    searchGoogleScholar(query),
-    searchCochraneLibrary(query),
-    searchClinicalTrialsForDatabases(query),
-    searchSemanticScholar(query, 5),
-    searchEuropePmc(query, { limit: 5 }),
-  ]);
-
-  const sourceNames = [
-    "PubMed",
-    "GoogleScholar",
-    "Cochrane",
-    "ClinicalTrials",
-    "SemanticScholar",
-    "EuropePMC",
-  ];
-  const sourceResults: string[] = [];
-
-  const results: GoogleScholarArticle[] = [];
-
-  // Process PubMed results
-  if (searches[0].status === "fulfilled" && searches[0].value) {
-    const count = searches[0].value.length;
-    sourceResults.push(`PubMed: ${count} results`);
-    searches[0].value.forEach((article) => {
-      results.push({
-        title: article.title,
-        authors: article.authors.join(", "),
-        abstract: article.abstract,
-        journal: article.journal,
-        year: article.publication_date.split("-")[0],
-        citations: "",
-        url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
-        doi: article.doi, // Preserve DOI from PubMed
-      });
-    });
-  } else {
-    sourceResults.push(`PubMed: unavailable`);
-  }
-
-  // Process Google Scholar results
-  if (searches[1].status === "fulfilled" && searches[1].value) {
-    sourceResults.push(`Google Scholar: ${searches[1].value.length} results`);
-    results.push(...searches[1].value);
-  } else {
-    sourceResults.push(`Google Scholar: unavailable`);
-  }
-
-  // Process Cochrane Library results
-  if (searches[2].status === "fulfilled" && searches[2].value) {
-    sourceResults.push(`Cochrane: ${searches[2].value.length} results`);
-    results.push(...searches[2].value);
-  } else {
-    sourceResults.push(`Cochrane: unavailable`);
-  }
-
-  // Process Clinical Trials results
-  if (searches[3].status === "fulfilled" && searches[3].value) {
-    sourceResults.push(`ClinicalTrials: ${searches[3].value.length} results`);
-    results.push(...searches[3].value);
-  } else {
-    sourceResults.push(`ClinicalTrials: unavailable`);
-  }
-
-  // Process Semantic Scholar results
-  if (searches[4].status === "fulfilled" && searches[4].value) {
-    sourceResults.push(`Semantic Scholar: ${searches[4].value.length} results`);
-    results.push(...searches[4].value);
-  } else {
-    sourceResults.push(`Semantic Scholar: unavailable`);
-  }
-
-  if (searches[5].status === "fulfilled" && searches[5].value) {
-    sourceResults.push(`Europe PMC: ${searches[5].value.length} results`);
-    results.push(
-      ...searches[5].value.map((item) => ({
-        title: item.title,
-        authors: item.authors,
-        abstract: item.abstract,
-        journal: item.journal,
-        year: item.year,
-        citations: item.citations,
-        url: item.url,
-        pdf_url: item.pdfUrl,
-        doi: item.doi,
-      })),
-    );
-  } else {
-    sourceResults.push(`Europe PMC: unavailable`);
-  }
-
-  logger.info(
-    "MedicalDatabases",
-    `Source results: ${sourceResults.join(", ")}`,
-  );
-
-  // Apply comprehensive deduplication
-  const dedupResult = deduplicatePapers(results);
-
-  return dedupResult.papers.slice(0, 20) as GoogleScholarArticle[]; // Limit to 20 results
-}
-
-async function searchCochraneLibrary(
-  query: string,
-): Promise<GoogleScholarArticle[]> {
-  if (hasTinyFishKey()) {
-    const tinyFish = await searchTinyFish(query, {
-      limit: 8,
-      extra: {
-        domainType: "web",
-        includeDomains: "cochranelibrary.com",
-        purpose: "Find Cochrane systematic reviews",
-      },
-    });
-    if (tinyFish.length > 0) {
-      return tinyFish.map((item) => ({
-        title: item.title,
-        authors: item.authors,
-        abstract: item.abstract,
-        journal: item.journal || "Cochrane Database",
-        year: item.year,
-        citations: item.citations,
-        url: item.url,
-      }));
-    }
-  }
-
-  logger.info("Cochrane", "No Monid results; skipping local scrape");
-  return [];
-}
-
-async function searchClinicalTrialsForDatabases(
-  query: string,
-): Promise<GoogleScholarArticle[]> {
-  const trials = await searchClinicalTrialsApi(query, { limit: 10 });
-  return trials.map((trial) => ({
-    title: trial.title,
-    authors: trial.sponsor || "Clinical Trial",
-    abstract: trial.summary || "",
-    journal: "ClinicalTrials.gov",
-    year: trial.startDate || "",
-    citations: "",
-    url: trial.url,
-  }));
-}
-
 export async function searchMedicalJournals(
   query: string,
 ): Promise<GoogleScholarArticle[]> {
   logger.info("MedicalJournals", `Searching medical journals for: ${query}`);
+  const phrase = quoteMultiWordQuery(query);
+  const journals = [
+    { name: "NEJM", term: '"N Engl J Med"[Journal]' },
+    { name: "JAMA", term: '"JAMA"[Journal]' },
+    { name: "Lancet", term: '"Lancet"[Journal]' },
+    { name: "BMJ", term: '"BMJ"[Journal]' },
+    { name: "Nature Medicine", term: '"Nat Med"[Journal]' },
+  ];
 
-  const journalSearches = await Promise.allSettled([
-    searchJournal("NEJM", query),
-    searchJournal("JAMA", query),
-    searchJournal("Lancet", query),
-    searchJournal("BMJ", query),
-    searchJournal("Nature Medicine", query),
-  ]);
+  const journalSearches = await Promise.allSettled(
+    journals.map((journal) =>
+      searchPubMed(`${phrase} AND ${journal.term}`, 5).then((articles) =>
+        pubmedToScholarArticles(articles).map((article) => ({
+          ...article,
+          journal: article.journal || journal.name,
+        })),
+      ),
+    ),
+  );
 
   const results: GoogleScholarArticle[] = [];
-
   journalSearches.forEach((search) => {
     if (search.status === "fulfilled" && search.value) {
       results.push(...search.value);
     }
   });
 
-  // Apply deduplication
   const dedupResult = deduplicatePapers(results);
   return dedupResult.papers.slice(0, 15) as GoogleScholarArticle[];
 }
 
-async function searchJournal(
-  journalName: string,
-  query: string,
-): Promise<GoogleScholarArticle[]> {
-  try {
-    // Use Google Scholar with journal-specific search
-    const journalQuery = `"${journalName}" ${query}`;
-    return await searchGoogleScholar(journalQuery);
-  } catch (error) {
-    console.error(`Error searching ${journalName}:`, error);
-    return [];
-  }
-}
-
-async function fetchFullTextFromPMC(pmc_id: string): Promise<string | null> {
+async function fetchFullTextFromPMC(
+  pmc_id: string,
+  expected?: { pmid?: string; doi?: string },
+): Promise<string | null> {
   try {
     const pmcXmlUrl = `${PMC_API_BASE}/oai/oai.cgi?verb=GetRecord&identifier=oai:pubmedcentral.nih.gov:${pmc_id}&metadataPrefix=pmc`;
     const xmlResponse = await superagent
@@ -1657,6 +1421,15 @@ async function fetchFullTextFromPMC(pmc_id: string): Promise<string | null> {
       .timeout(30000);
 
     const xmlText = xmlResponse.text;
+    if (expected && (expected.pmid || expected.doi)) {
+      if (!pmcRecordMatchesArticle(xmlText, expected)) {
+        logger.warn(
+          "PMC",
+          `PMC${pmc_id} does not match PMID ${expected.pmid || ""} / DOI ${expected.doi || ""} — not attaching full text`,
+        );
+        return null;
+      }
+    }
     const bodyMatches = xmlText.match(/<body[^>]*>([\s\S]*?)<\/body>/gi);
     if (bodyMatches && bodyMatches.length > 0) {
       let fullText = "";
@@ -1677,12 +1450,7 @@ async function fetchFullTextFromPMC(pmc_id: string): Promise<string | null> {
     logger.warn("PMC", `XML method failed for ${pmc_id}; trying Monid fetch`);
   }
 
-  const pages = await fetchTinyFishPages(
-    [`${PMC_API_BASE}/articles/PMC${pmc_id}/`],
-    "Extract full text of this open-access PMC article",
-  );
-  const text = pages[0]?.text?.trim() || "";
-  return text.length > 500 ? text.slice(0, 50000) : null;
+  return null;
 }
 
 export async function searchPubMedArticles(
@@ -1696,6 +1464,7 @@ export async function searchPubMedArticles(
       term: query,
       retmode: "json",
       retmax: maxResults,
+      sort: "relevance",
     };
     if (NCBI_API_KEY) {
       searchParams.api_key = NCBI_API_KEY;
@@ -1739,31 +1508,7 @@ export async function searchPubMedArticles(
 
     const articles = parsePubMedXML(fetchRes.text);
 
-    // Fetch full text for articles with PMC ID (limit to first 3 to avoid rate limiting)
-    const articlesWithFullText = await Promise.all(
-      articles.slice(0, 3).map(async (article) => {
-        if (article.pmc_id) {
-          try {
-            const fullText = await fetchFullTextFromPMC(article.pmc_id);
-            if (fullText) {
-              article.full_text = fullText;
-            }
-          } catch (error) {
-            console.error(
-              `Error fetching full text for PMID ${article.pmid}:`,
-              error,
-            );
-          }
-        }
-        return article;
-      }),
-    );
-
-    // Combine articles with full text and those without
-    const allArticles = [...articlesWithFullText, ...articles.slice(3)];
-
-    // Apply deduplication
-    const dedupResult = deduplicatePapers(allArticles);
+    const dedupResult = deduplicatePapers(articles);
     return dedupResult.papers as PubMedArticle[];
   } catch (error) {
     console.error("Error searching PubMed:", error);
@@ -1771,136 +1516,16 @@ export async function searchPubMedArticles(
   }
 }
 
-export function parsePubMedXML(xmlText: string): PubMedArticle[] {
-  const articles: PubMedArticle[] = [];
-
-  // Split by article boundaries
-  const articleMatches = xmlText.match(
-    /<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g,
-  );
-
-  if (!articleMatches) return articles;
-
-  for (const articleXml of articleMatches) {
-    try {
-      // Extract PMID
-      const pmidMatch = articleXml.match(/<PMID[^>]*>(\d+)<\/PMID>/);
-      const pmid = pmidMatch?.[1];
-      if (!pmid) continue;
-
-      // Extract title
-      const titleMatch = articleXml.match(
-        /<ArticleTitle[^>]*>([^<]+)<\/ArticleTitle>/,
-      );
-      const title = titleMatch?.[1]?.trim() || "No title available";
-
-      // Extract abstract
-      let abstract = "No abstract available";
-      const abstractMatch = articleXml.match(
-        /<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/,
-      );
-      if (abstractMatch) {
-        abstract = abstractMatch[1]
-          .replace(/<[^>]*>/g, "") // Remove HTML tags
-          .replace(/\s+/g, " ") // Normalize whitespace
-          .trim();
-      }
-
-      // Extract authors
-      const authors: string[] = [];
-      const authorMatches = articleXml.match(/<Author[\s\S]*?<\/Author>/g);
-      if (authorMatches) {
-        for (const authorXml of authorMatches) {
-          const lastNameMatch = authorXml.match(
-            /<LastName>([^<]+)<\/LastName>/,
-          );
-          const firstNameMatch = authorXml.match(
-            /<ForeName>([^<]+)<\/ForeName>/,
-          );
-          const collectiveNameMatch = authorXml.match(
-            /<CollectiveName>([^<]+)<\/CollectiveName>/,
-          );
-
-          if (collectiveNameMatch) {
-            authors.push(collectiveNameMatch[1].trim());
-          } else if (lastNameMatch && firstNameMatch) {
-            authors.push(
-              `${firstNameMatch[1].trim()} ${lastNameMatch[1].trim()}`,
-            );
-          } else if (lastNameMatch) {
-            authors.push(lastNameMatch[1].trim());
-          }
-        }
-      }
-
-      // Extract journal information
-      let journal = "Journal information not available";
-      const journalMatch = articleXml.match(/<Title>([^<]+)<\/Title>/);
-      if (journalMatch) {
-        journal = journalMatch[1].trim();
-      }
-
-      // Extract publication date
-      let publicationDate = "Date not available";
-      const yearMatch = articleXml.match(/<Year>(\d{4})<\/Year>/);
-      const monthMatch = articleXml.match(/<Month>(\d{1,2})<\/Month>/);
-      const dayMatch = articleXml.match(/<Day>(\d{1,2})<\/Day>/);
-
-      if (yearMatch) {
-        const year = yearMatch[1];
-        const month = monthMatch?.[1]?.padStart(2, "0") || "01";
-        const day = dayMatch?.[1]?.padStart(2, "0") || "01";
-        publicationDate = `${year}-${month}-${day}`;
-      }
-
-      // Extract DOI
-      let doi: string | undefined;
-      const doiMatch = articleXml.match(
-        /<ELocationID[^>]*EIdType="doi"[^>]*>([^<]+)<\/ELocationID>/,
-      );
-      if (doiMatch) {
-        doi = doiMatch[1].trim();
-      }
-
-      // Extract PMC ID
-      let pmc_id: string | undefined;
-      const pmcIdPatterns = [
-        /<ArticleId[^>]*IdType="pmc"[^>]*>PMC(\d+)<\/ArticleId>/i,
-        /<ArticleId[^>]*IdType="pmc"[^>]*>(\d+)<\/ArticleId>/i,
-      ];
-      for (const pattern of pmcIdPatterns) {
-        const pmcMatch = articleXml.match(pattern);
-        if (pmcMatch) {
-          pmc_id = pmcMatch[1].trim();
-          break;
-        }
-      }
-
-      articles.push({
-        pmid,
-        title,
-        abstract,
-        authors,
-        journal,
-        publication_date: publicationDate,
-        doi,
-        pmc_id,
-      });
-    } catch (error) {
-      console.error("Error parsing individual article:", error);
-    }
-  }
-
-  return articles;
-}
-
 export async function getPubMedArticleByPMID(
   pmid: string,
 ): Promise<PubMedArticle | null> {
+  if (!isValidPmid(pmid)) {
+    return null;
+  }
   try {
     const fetchParams: Record<string, any> = {
       db: "pubmed",
-      id: pmid,
+      id: pmid.trim(),
       retmode: "xml",
     };
     if (NCBI_API_KEY) {
@@ -1919,9 +1544,11 @@ export async function getPubMedArticleByPMID(
     const article = articles[0] || null;
 
     if (article && article.pmc_id) {
-      // Always try to fetch full text for individual article requests
       try {
-        const fullText = await fetchFullTextFromPMC(article.pmc_id);
+        const fullText = await fetchFullTextFromPMC(article.pmc_id, {
+          pmid: article.pmid,
+          doi: article.doi,
+        });
         if (fullText) {
           article.full_text = fullText;
         }
@@ -2064,6 +1691,7 @@ async function searchPubMed(
       term: query,
       retmode: "json",
       retmax: maxResults,
+      sort: "relevance",
     };
     if (NCBI_API_KEY) {
       searchParams.api_key = NCBI_API_KEY;
@@ -2166,45 +1794,14 @@ export async function searchClinicalGuidelines(
 
       // Apply organization filter if provided
       if (organization) {
-        const orgLower = org.toLowerCase();
-        const titleLower = article.title.toLowerCase();
-        const abstractLower = (article.abstract || "").toLowerCase();
-        const journalLower = (article.journal || "").toLowerCase();
-        const orgFilterLower = organization.toLowerCase();
-
-        // Check if organization appears in any relevant field
-        const matchesOrg =
-          orgLower.includes(orgFilterLower) ||
-          titleLower.includes(orgFilterLower) ||
-          abstractLower.includes(orgFilterLower) ||
-          journalLower.includes(orgFilterLower);
-
-        // Also check for common abbreviations/aliases
-        const orgAbbreviations: { [key: string]: string[] } = {
-          aap: ["american academy of pediatrics", "american academy pediatric"],
-          who: ["world health organization"],
-          cdc: ["centers for disease control"],
-          aha: ["american heart association"],
-          acc: ["american college of cardiology"],
-          ada: ["american diabetes association"],
-          acp: ["american college of physicians"],
-        };
-
-        let matchesAbbreviation = false;
-        if (orgAbbreviations[orgFilterLower]) {
-          for (const fullName of orgAbbreviations[orgFilterLower]) {
-            if (
-              orgLower.includes(fullName) ||
-              titleLower.includes(fullName) ||
-              abstractLower.includes(fullName)
-            ) {
-              matchesAbbreviation = true;
-              break;
-            }
-          }
-        }
-
-        if (!matchesOrg && !matchesAbbreviation) {
+        if (
+          !organizationFilterMatches(organization, {
+            organization: org,
+            title: article.title,
+            abstract: article.abstract,
+            journal: article.journal,
+          })
+        ) {
           continue;
         }
       }
@@ -2319,25 +1916,46 @@ export async function searchBrightFuturesGuidelines(
 ): Promise<PediatricGuideline[]> {
   logger.info(
     "BrightFutures",
-    `Searching Bright Futures via Monid for: ${query}`,
+    `Searching Bright Futures via PubMed and Monid for: ${query}`,
   );
-  const items = await searchTinyFish(query, {
+  const pubmedQuery = `(${quoteMultiWordQuery(query)}) AND "Bright Futures"[tiab]`;
+  const pubmed = await searchPubMed(pubmedQuery, 8);
+  const fromPubmed: PediatricGuideline[] = pubmed.map((article) => ({
+    title: article.title,
+    organization: "American Academy of Pediatrics",
+    year: article.publication_date.slice(0, 4),
+    url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+    description: (article.abstract || "").substring(0, 300),
+    age_group: "",
+    category: "Preventive Care",
+    source: "bright-futures" as const,
+  }));
+
+  const web = (await searchTinyFish(query, {
     limit: 10,
     extra: {
       domainType: "web",
-      includeDomains: "brightfutures.aap.org,aap.org",
+      includeDomains: "brightfutures.aap.org",
       purpose: "Find AAP Bright Futures pediatric preventive care guidelines",
     },
-  });
-  return items.map((item) => ({
-    title: item.title,
-    organization: "American Academy of Pediatrics",
-    url: item.url || "",
-    description: (item.abstract || "").substring(0, 300),
-    age_group: "",
-    category: "Preventive Care",
-    source: "bright-futures",
-  }));
+  }))
+    .filter((item) => isAllowedAapUrl(item.url))
+    .map((item) => {
+      const url = normalizeAapUrl(item.url || "");
+      const classified = classifyAapResult(url, item.title);
+      return {
+        title: item.title,
+        organization: "American Academy of Pediatrics",
+        year: item.year || "",
+        url,
+        description: (item.abstract || "").substring(0, 300),
+        age_group: "",
+        category: classified.category,
+        source: "bright-futures" as const,
+      };
+    });
+
+  return dedupeGuidelines([...fromPubmed, ...web]);
 }
 
 export async function searchAAPPolicyStatements(
@@ -2345,25 +1963,62 @@ export async function searchAAPPolicyStatements(
 ): Promise<PediatricGuideline[]> {
   logger.info(
     "AAPPolicy",
-    `Searching AAP policy statements via Monid for: ${query}`,
+    `Searching AAP policy statements via PubMed and Monid for: ${query}`,
   );
-  const items = await searchTinyFish(query, {
+  const pubmedQuery = `(${quoteMultiWordQuery(query)}) AND ("American Academy of Pediatrics"[Corporate Author] OR ("Pediatrics"[Journal] AND ("policy statement"[ti] OR "clinical report"[ti] OR "clinical practice guideline"[ti] OR "technical report"[ti])))`;
+  const pubmed = await searchPubMed(pubmedQuery, 10);
+  const fromPubmed: PediatricGuideline[] = pubmed.map((article) => {
+    const classified = classifyAapResult(
+      `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+      article.title,
+    );
+    return {
+      title: article.title,
+      organization: "American Academy of Pediatrics",
+      year: article.publication_date.slice(0, 4),
+      url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+      description: (article.abstract || "").substring(0, 300),
+      category: classified.category,
+      source: "aap-policy" as const,
+    };
+  });
+
+  const web = (await searchTinyFish(query, {
     limit: 10,
     extra: {
       domainType: "web",
       includeDomains: "publications.aap.org,aap.org",
       purpose: "Find AAP policy statements and pediatric clinical guidelines",
     },
-  });
-  return items.map((item) => ({
-    title: item.title,
-    organization: "American Academy of Pediatrics",
-    year: item.year || "",
-    url: item.url || "",
-    description: (item.abstract || "").substring(0, 300),
-    category: "Policy Statement",
-    source: "aap-policy",
-  }));
+  }))
+    .filter((item) => isAllowedAapUrl(item.url))
+    .map((item) => {
+      const url = normalizeAapUrl(item.url || "");
+      const classified = classifyAapResult(url, item.title);
+      return {
+        title: item.title,
+        organization: "American Academy of Pediatrics",
+        year: item.year || "",
+        url,
+        description: (item.abstract || "").substring(0, 300),
+        category: classified.category,
+        source: classified.source,
+      };
+    });
+
+  return dedupeGuidelines([...fromPubmed, ...web]);
+}
+
+function dedupeGuidelines(guidelines: PediatricGuideline[]): PediatricGuideline[] {
+  return guidelines.filter(
+    (item, index, self) =>
+      index ===
+      self.findIndex(
+        (g) =>
+          g.title.toLowerCase().replace(/[^\w\s]/g, "") ===
+          item.title.toLowerCase().replace(/[^\w\s]/g, ""),
+      ),
+  );
 }
 
 export async function searchPediatricJournals(
@@ -2397,155 +2052,6 @@ export async function searchPediatricJournals(
     console.error("Error searching pediatric journals:", error);
     return [];
   }
-}
-
-export async function getChildHealthIndicators(
-  indicator: string,
-  country?: string,
-  limit: number = 10,
-): Promise<ChildHealthIndicator[]> {
-  try {
-    // First, try to find indicators matching the query
-    let filter = `contains(IndicatorName, '${indicator.replace(/'/g, "''")}')`;
-
-    let response = await superagent
-      .get(`${WHO_API_BASE}/Indicator`)
-      .query({
-        $filter: filter,
-        $format: "json",
-      })
-      .set("User-Agent", USER_AGENT);
-
-    let indicators: WHOIndicator[] = response.body.value || [];
-
-    // If no results, try with child-specific terms
-    if (indicators.length === 0) {
-      const childTerms = [
-        "child",
-        "pediatric",
-        "infant",
-        "neonatal",
-        "under-five",
-      ];
-      for (const term of childTerms) {
-        filter = `contains(IndicatorName, '${term}')`;
-        response = await superagent
-          .get(`${WHO_API_BASE}/Indicator`)
-          .query({
-            $filter: filter,
-            $format: "json",
-          })
-          .set("User-Agent", USER_AGENT);
-
-        const termResults = response.body.value || [];
-        if (termResults.length > 0) {
-          indicators = termResults;
-          break;
-        }
-      }
-    }
-
-    // If still no results, try with specific child health indicator codes
-    if (indicators.length === 0) {
-      const childIndicators = await Promise.allSettled(
-        WHO_CHILD_HEALTH_INDICATORS.map(async (code) => {
-          const res = await superagent
-            .get(`${WHO_API_BASE}/Indicator`)
-            .query({
-              $filter: `IndicatorCode eq '${code}'`,
-              $format: "json",
-            })
-            .set("User-Agent", USER_AGENT);
-          return res.body.value || [];
-        }),
-      );
-
-      indicators = childIndicators
-        .filter((r) => r.status === "fulfilled")
-        .flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-    }
-
-    // Filter for child health indicators (age groups 0-18 years)
-    const childIndicators = indicators.filter((ind) => {
-      const name = ind.IndicatorName.toLowerCase();
-      return (
-        name.includes("child") ||
-        name.includes("pediatric") ||
-        name.includes("infant") ||
-        name.includes("neonatal") ||
-        name.includes("under-five") ||
-        name.includes("under 5") ||
-        name.includes("0-18") ||
-        name.includes("0 to 18") ||
-        name.includes("under-5")
-      );
-    });
-
-    // Now fetch actual data for each indicator (similar to getHealthIndicators)
-    const results: ChildHealthIndicator[] = [];
-
-    for (const indicator of childIndicators.slice(0, 3)) {
-      try {
-        const indicatorCode = indicator.IndicatorCode;
-        let dataFilter = "";
-        if (country) {
-          dataFilter = `SpatialDim eq '${country}'`;
-        }
-
-        const queryParams: any = {
-          $format: "json",
-          $top: limit,
-        };
-
-        if (dataFilter) {
-          queryParams.$filter = dataFilter;
-        }
-
-        const dataRes = await superagent
-          .get(`${WHO_API_BASE}/${indicatorCode}`)
-          .query(queryParams)
-          .set("User-Agent", USER_AGENT);
-
-        const dataValues = dataRes.body.value || [];
-
-        // Convert to ChildHealthIndicator format
-        dataValues.forEach((item: any) => {
-          results.push({
-            ...item,
-            AgeGroup: extractAgeGroup(indicator.IndicatorName),
-          });
-        });
-      } catch (error) {
-        console.error(
-          `Error fetching data for indicator ${indicator.IndicatorCode}:`,
-          error,
-        );
-      }
-    }
-
-    return results.slice(0, limit);
-  } catch (error) {
-    console.error("Error fetching child health indicators:", error);
-    return [];
-  }
-}
-
-function extractAgeGroup(indicatorName: string): string {
-  const agePatterns = [
-    /(\d+\s*(?:-|\s*to\s*)\s*\d+\s*(?:months?|years?|days?))/i,
-    /(infant|toddler|preschool|school-age|adolescent)/i,
-    /(under-five|under 5|under-five years)/i,
-    /(neonatal|newborn)/i,
-  ];
-
-  for (const pattern of agePatterns) {
-    const match = indicatorName.match(pattern);
-    if (match) {
-      return match[0];
-    }
-  }
-
-  return "0-18 years";
 }
 
 export async function searchPediatricDrugs(
@@ -2785,12 +2291,14 @@ export async function getPubMedArticleByPMIDCached(
 // Cached version of searchRxNormDrugs
 export async function searchRxNormDrugsCached(
   query: string,
+  limit: number = 25,
 ): Promise<CachedResult<RxNormDrug[]>> {
   const cacheKey = cacheManager.generateKey(
     "RxNorm",
     "search-drug-nomenclature",
     {
       query,
+      limit,
     },
   );
   const cached = cacheManager.get(cacheKey);
@@ -2805,7 +2313,7 @@ export async function searchRxNormDrugsCached(
     };
   }
 
-  const data = await searchRxNormDrugs(query);
+  const data = await searchRxNormDrugs(query, limit);
   cacheManager.set(cacheKey, data, config.ttls.rxnorm, "RxNorm");
 
   return {
@@ -2883,47 +2391,6 @@ export async function searchClinicalGuidelinesCached(
     data,
     config.ttls.clinicalGuidelines,
     "ClinicalGuidelines",
-  );
-
-  return {
-    data,
-    metadata: {
-      cached: false,
-      cacheAge: 0,
-    },
-  };
-}
-
-// Cached version of searchMedicalDatabases
-export async function searchMedicalDatabasesCached(
-  query: string,
-): Promise<CachedResult<GoogleScholarArticle[]>> {
-  const cacheKey = cacheManager.generateKey(
-    "MedicalDatabases",
-    "search-medical-databases",
-    {
-      query,
-    },
-  );
-  const cached = cacheManager.get(cacheKey);
-
-  if (cached) {
-    return {
-      data: cached.data,
-      metadata: {
-        cached: true,
-        cacheAge: getCacheAge(cached.timestamp),
-      },
-    };
-  }
-
-  const data = await searchMedicalDatabases(query);
-  // Use shortest TTL (PubMed/Google Scholar) for multi-source queries
-  cacheManager.set(
-    cacheKey,
-    data,
-    Math.min(config.ttls.pubmed, config.ttls.googleScholar),
-    "MedicalDatabases",
   );
 
   return {
@@ -3084,45 +2551,6 @@ export async function searchPediatricJournalsCached(
   };
 }
 
-// Cached version of getChildHealthIndicators
-export async function getChildHealthIndicatorsCached(
-  indicator: string,
-  country?: string,
-  limit: number = 10,
-): Promise<CachedResult<ChildHealthIndicator[]>> {
-  const cacheKey = cacheManager.generateKey(
-    "ChildHealth",
-    "get-child-health-indicators",
-    {
-      indicator,
-      country,
-      limit,
-    },
-  );
-  const cached = cacheManager.get(cacheKey);
-
-  if (cached) {
-    return {
-      data: cached.data,
-      metadata: {
-        cached: true,
-        cacheAge: getCacheAge(cached.timestamp),
-      },
-    };
-  }
-
-  const data = await getChildHealthIndicators(indicator, country, limit);
-  cacheManager.set(cacheKey, data, config.ttls.childHealth, "ChildHealth");
-
-  return {
-    data,
-    metadata: {
-      cached: false,
-      cacheAge: 0,
-    },
-  };
-}
-
 // Cached version of searchPediatricDrugs
 export async function searchPediatricDrugsCached(
   query: string,
@@ -3171,7 +2599,7 @@ export async function searchAAPGuidelinesCached(
 ): Promise<CachedResult<PediatricGuideline[]>> {
   const cacheKey = cacheManager.generateKey(
     "AAPGuidelines",
-    "search-aap-guidelines",
+    "search-pediatric-guidelines",
     {
       query,
     },
@@ -3334,11 +2762,18 @@ export async function getSourceHealth(): Promise<{
   );
 
   const registered = await getRegisteredSourceHealth();
-  const seen = new Set(sources.map((source) => source.source));
+  const seen = new Set(
+    sources.map((source) => source.source.toLowerCase().replace(/[^a-z]/g, "")),
+  );
   for (const extra of registered) {
-    if (!seen.has(extra.source)) {
-      sources.push(extra);
+    const key = extra.source.toLowerCase().replace(/[^a-z]/g, "");
+    const isDuplicateCtgov =
+      key === "clinicaltrialsgov" && seen.has("clinicaltrials");
+    if (isDuplicateCtgov || seen.has(key)) {
+      continue;
     }
+    sources.push(extra);
+    seen.add(key);
   }
 
   return {
