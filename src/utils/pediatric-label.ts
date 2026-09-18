@@ -36,6 +36,24 @@ export function fdaLabelHasPediatricUse(drug: DrugLabel): boolean {
   return PEDIATRIC_TERMS.some((term) => haystack.includes(term));
 }
 
+export function extractPediatricSentence(text: string): string | undefined {
+  if (!text?.trim()) return undefined;
+  const term =
+    /\b(pediatric|paediatric|child|children|infant|infants|neonate|neonatal|neonates|newborn|adolescent|adolescents)\b/i;
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  for (const sentence of sentences) {
+    if (!term.test(sentence)) continue;
+    if (!/^[A-Z("]/.test(sentence)) continue;
+    if (sentence.length <= 280) return sentence;
+    return `${sentence.slice(0, 277).trimEnd()}...`;
+  }
+  return undefined;
+}
+
 export function pediatricDrugsEmptyMessage(
   query: string,
   labelsRetrieved: number,

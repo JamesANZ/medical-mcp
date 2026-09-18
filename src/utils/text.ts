@@ -106,3 +106,49 @@ export function hasNonHomePath(url: string): boolean {
     return false;
   }
 }
+
+export function normalizeDoi(doi?: string): string | undefined {
+  if (!doi) return undefined;
+  const trimmed = doi
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
+  return trimmed || undefined;
+}
+
+/** Core guideline title, stripping simultaneous-publication "A Report of the …" tails. */
+export function guidelineTitleKey(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\ba report of the\b[\s\S]*$/i, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function sameGuideline(
+  a: { title: string; doi?: string },
+  b: { title: string; doi?: string },
+): boolean {
+  const doiA = normalizeDoi(a.doi);
+  const doiB = normalizeDoi(b.doi);
+  if (doiA && doiB && doiA === doiB) return true;
+  const titleA = guidelineTitleKey(a.title);
+  const titleB = guidelineTitleKey(b.title);
+  if (!titleA || !titleB) return false;
+  if (titleA === titleB) return true;
+  const [shorter, longer] =
+    titleA.length <= titleB.length ? [titleA, titleB] : [titleB, titleA];
+  return shorter.length >= 40 && longer.startsWith(shorter);
+}
+
+export function dedupeByTitleOrDoi<T extends { title: string; doi?: string }>(
+  items: T[],
+): T[] {
+  const unique: T[] = [];
+  for (const item of items) {
+    if (unique.some((kept) => sameGuideline(kept, item))) continue;
+    unique.push(item);
+  }
+  return unique;
+}

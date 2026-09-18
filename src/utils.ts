@@ -44,6 +44,7 @@ import {
   quoteMultiWordQuery,
   redactEmails,
   truncateWithNotice,
+  dedupeByTitleOrDoi,
 } from "./utils/text.js";
 import {
   mapWhoDataValue,
@@ -67,6 +68,7 @@ import {
 import {
   fdaLabelHasPediatricUse,
   pediatricDrugsEmptyMessage,
+  extractPediatricSentence,
 } from "./utils/pediatric-label.js";
 import {
   resilientCall,
@@ -1202,22 +1204,17 @@ export function formatPediatricDrugs(
       drug.dosage_and_administration.length > 0
     ) {
       const dosage = drug.dosage_and_administration.join(" ");
-      // Extract pediatric-specific dosing if available
-      const pediatricDosing = dosage.match(
-        /(?:pediatric|child|infant|neonatal)[^.]*(?:\.|$)/i,
-      );
+      const pediatricDosing = extractPediatricSentence(dosage);
       if (pediatricDosing) {
-        result += `   Pediatric Dosing: ${pediatricDosing[0].substring(0, 200)}...\n`;
+        result += `   Pediatric Dosing: ${pediatricDosing}\n`;
       }
     }
 
     if (drug.warnings && drug.warnings.length > 0) {
       const warnings = drug.warnings.join(" ");
-      const pediatricWarnings = warnings.match(
-        /(?:pediatric|child|infant|neonatal)[^.]*(?:\.|$)/i,
-      );
+      const pediatricWarnings = extractPediatricSentence(warnings);
       if (pediatricWarnings) {
-        result += `   Pediatric Warnings: ${pediatricWarnings[0].substring(0, 200)}...\n`;
+        result += `   Pediatric Warnings: ${pediatricWarnings}\n`;
       }
     }
 
@@ -1932,27 +1929,17 @@ export async function searchClinicalGuidelines(
         description: (article.abstract || "").substring(0, 200) + "...",
         category: category,
         evidence_level: evidenceLevel,
+        doi: article.doi,
       };
 
       scoredGuidelines.push({ guideline, score: score.total });
     }
 
-    // Remove duplicates based on title similarity
-    const uniqueGuidelines = scoredGuidelines.filter(
-      (item, index, self) =>
-        index ===
-        self.findIndex(
-          (g) =>
-            g.guideline.title.toLowerCase().replace(/[^\w\s]/g, "") ===
-            item.guideline.title.toLowerCase().replace(/[^\w\s]/g, ""),
-        ),
-    );
-
-    // Sort by score descending and return top results
-    return uniqueGuidelines
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 15)
-      .map((item) => item.guideline);
+    return dedupeByTitleOrDoi(
+      scoredGuidelines
+        .sort((a, b) => b.score - a.score)
+        .map((item) => item.guideline),
+    ).slice(0, 15);
   } catch (error) {
     console.error("Error searching clinical guidelines:", error);
     return [];
@@ -2070,15 +2057,7 @@ export async function searchAAPPolicyStatements(
 function dedupeGuidelines(
   guidelines: PediatricGuideline[],
 ): PediatricGuideline[] {
-  return guidelines.filter(
-    (item, index, self) =>
-      index ===
-      self.findIndex(
-        (g) =>
-          g.title.toLowerCase().replace(/[^\w\s]/g, "") ===
-          item.title.toLowerCase().replace(/[^\w\s]/g, ""),
-      ),
-  );
+  return dedupeByTitleOrDoi(guidelines);
 }
 
 export async function searchPediatricJournals(

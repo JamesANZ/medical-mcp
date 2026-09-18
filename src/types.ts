@@ -79,6 +79,7 @@ export type ClinicalGuideline = {
   description?: string;
   category?: string;
   evidence_level?: string;
+  doi?: string;
 };
 
 export interface GuidelineScore {

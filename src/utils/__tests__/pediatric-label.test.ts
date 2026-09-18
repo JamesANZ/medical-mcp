@@ -2,6 +2,7 @@ import type { DrugLabel } from "../../types.js";
 import {
   fdaLabelHasPediatricUse,
   pediatricDrugsEmptyMessage,
+  extractPediatricSentence,
 } from "../pediatric-label.js";
 
 function label(
@@ -66,5 +67,28 @@ describe("pediatric-drugs empty state", () => {
     const filtered = pediatricDrugsEmptyMessage("ibuprofen", 6);
     expect(filtered.toLowerCase()).not.toMatch(/not approved/);
     expect(filtered).toMatch(/search\/filter/i);
+  });
+});
+
+describe("pediatric sentence extraction", () => {
+  test("does not clip the NSAID pregnancy warning mid-sentence", () => {
+    const warnings =
+      "If pregnant or breast-feeding: ask a health professional before use. It is especially important not to use ibuprofen at 20 weeks or later in pregnancy unless definitely directed to do so by a doctor because it may cause problems in the unborn child or complications during delivery.";
+    const extracted = extractPediatricSentence(warnings);
+    expect(extracted).not.toMatch(/^child or complications/i);
+    expect(extracted).toMatch(/^It is especially important/);
+  });
+
+  test("keeps a sentence that starts as a pediatric warning", () => {
+    expect(
+      extractPediatricSentence(
+        "Keep out of reach of children. In case of overdose, get medical help or contact a Poison Control Center right away.",
+      ),
+    ).toBe("Keep out of reach of children.");
+    expect(
+      extractPediatricSentence(
+        "Pediatric patients: 5 to 10 mg/kg every 6 to 8 hours as needed for fever.",
+      ),
+    ).toMatch(/^Pediatric patients:/);
   });
 });

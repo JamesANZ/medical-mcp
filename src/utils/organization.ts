@@ -126,6 +126,16 @@ function isAcronymAlias(alias: string): boolean {
   return alias.length <= 5 && /^[A-Z]+$/.test(alias);
 }
 
+function acronymIsStandalone(
+  text: string,
+  index: number,
+  length: number,
+): boolean {
+  const before = index > 0 ? text[index - 1] : "";
+  const after = text[index + length] || "";
+  return before !== "/" && after !== "/";
+}
+
 export function aliasWordPattern(alias: string): RegExp {
   // WHO/NICE/ESC and similar must not match ordinary English words.
   const flags = isAcronymAlias(alias) ? "" : "i";
@@ -150,6 +160,12 @@ function aliasHits(text: string): AliasHit[] {
       const pattern = aliasWordPattern(alias);
       const match = pattern.exec(text);
       if (match && match.index >= 0) {
+        if (
+          isAcronymAlias(alias) &&
+          !acronymIsStandalone(text, match.index, match[0].length)
+        ) {
+          continue;
+        }
         hits.push({
           org,
           alias,

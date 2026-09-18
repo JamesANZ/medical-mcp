@@ -12,6 +12,7 @@ import {
   decodeHtmlEntities,
   isValidPmid,
   quoteMultiWordQuery,
+  sameGuideline,
 } from "../text.js";
 import {
   mapWhoDataValue,
@@ -205,6 +206,24 @@ describe("organization extraction", () => {
     ).toBe("Society of Thoracic Surgeons");
   });
 
+  test("does not treat HRS in a slash-list as Heart Rhythm Society", () => {
+    expect(
+      extractOrganizationName(
+        "EHRA/HRS/APHRS/LAHRS expert consensus statement on arrhythmias",
+      ),
+    ).not.toBe("Heart Rhythm Society");
+    expect(
+      extractOrganizationName(
+        "SCAI/HRS expert consensus statement on transcatheter left atrial appendage closure",
+      ),
+    ).not.toBe("Heart Rhythm Society");
+    expect(
+      extractOrganizationName(
+        "Heart Rhythm Society expert consensus statement on arrhythmias",
+      ),
+    ).toBe("Heart Rhythm Society");
+  });
+
   test("does not treat English who as WHO", () => {
     expect(
       extractOrganizationName(
@@ -254,6 +273,32 @@ describe("helpers", () => {
   test("quotes multi-word queries", () => {
     expect(quoteMultiWordQuery("long COVID")).toBe('"long COVID"');
     expect(quoteMultiWordQuery("metformin")).toBe("metformin");
+  });
+
+  test("dedupes simultaneous journal publications of the same guideline", () => {
+    const jacc = {
+      title:
+        "2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation",
+      doi: "10.1016/j.jacc.2023.08.017",
+    };
+    const circulation = {
+      title:
+        "2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation: A Report of the American College of Cardiology/American Heart Association Joint Committee on Clinical Practice Guidelines",
+      doi: "10.1161/CIR.0000000000001193",
+    };
+    expect(sameGuideline(jacc, circulation)).toBe(true);
+    expect(
+      sameGuideline(jacc, {
+        title: jacc.title,
+        doi: "https://doi.org/10.1016/j.jacc.2023.08.017",
+      }),
+    ).toBe(true);
+    expect(
+      sameGuideline(jacc, {
+        title:
+          "2014 AHA/ACC/HRS Guideline for the Management of Patients With Atrial Fibrillation",
+      }),
+    ).toBe(false);
   });
 
   test("maps WHO sex dimensions and sorts years descending", () => {
