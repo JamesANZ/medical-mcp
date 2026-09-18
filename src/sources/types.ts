@@ -72,6 +72,8 @@ export interface ClinicalTrial {
   summary?: string;
   startDate?: string;
   url?: string;
+  acronym?: string;
+  interventions?: string[];
 }
 
 export interface LiteratureItem {

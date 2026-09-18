@@ -3,7 +3,10 @@ import {
   parsePubMedXML,
   pmcRecordMatchesArticle,
 } from "../pubmed-xml.js";
-import { organizationFilterMatches } from "../organization.js";
+import {
+  organizationFilterMatches,
+  extractOrganizationName,
+} from "../organization.js";
 import { isAllowedAapUrl, classifyAapResult } from "../aap-urls.js";
 import {
   decodeHtmlEntities,
@@ -148,6 +151,68 @@ describe("organization filter", () => {
       }),
     ).toBe(true);
   });
+
+  test("matches ISTH and CHEST by alias, not by truncated prefixes", () => {
+    expect(
+      organizationFilterMatches("ISTH", {
+        organization: "International Society on Thrombosis and Haemostasis",
+        title: "guidance from the SSC of the ISTH",
+      }),
+    ).toBe(true);
+    expect(
+      organizationFilterMatches("American College of Chest Physicians", {
+        organization: "American College of Chest Physicians",
+        title: "CHEST Guideline and Expert Panel Report",
+      }),
+    ).toBe(true);
+    expect(
+      organizationFilterMatches("American College of Chest Physicians", {
+        organization: "American College",
+        title: "Unrelated",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("organization extraction", () => {
+  test("keeps the longest organisation name, not a prefix", () => {
+    expect(
+      extractOrganizationName(
+        "Antithrombotic Therapy for Atrial Fibrillation: CHEST Guideline and Expert Panel Report",
+        "The American College of Chest Physicians recommends anticoagulation for atrial fibrillation.",
+      ),
+    ).toBe("American College of Chest Physicians");
+    expect(
+      extractOrganizationName(
+        "Stroke Prevention in Atrial Fibrillation Contemporary International Guidelines",
+        "Comparison of the European Society of Cardiology (ESC) and AHA/ACC recommendations.",
+      ),
+    ).toContain("European Society of Cardiology");
+    expect(
+      extractOrganizationName(
+        "Anticoagulation for stroke prevention in atrial fibrillation: guidance from the SSC of the ISTH",
+      ),
+    ).toBe("International Society on Thrombosis and Haemostasis");
+    expect(
+      extractOrganizationName(
+        "Canadian Heart Rhythm Society position statement on anticoagulation",
+      ),
+    ).toBe("Canadian Heart Rhythm Society");
+    expect(
+      extractOrganizationName(
+        "The Society of Thoracic Surgeons practice guideline",
+      ),
+    ).toBe("Society of Thoracic Surgeons");
+  });
+
+  test("does not treat English who as WHO", () => {
+    expect(
+      extractOrganizationName(
+        "Hypertension guideline",
+        "Clinicians who deliver most of the primary care",
+      ),
+    ).toBe("Unknown Organization");
+  });
 });
 
 describe("AAP URL allowlist", () => {
@@ -247,5 +312,24 @@ describe("helpers", () => {
       "This study protocol describes a randomized trial.",
     );
     expect(tag.studyType).toBe("Study Protocol");
+  });
+
+  test("grades JAMA narrative reviews as Grade V even when the abstract cites RCTs", () => {
+    const diabetes = classifyEvidence(
+      "Diagnosis and Treatment of Type 2 Diabetes in Adults: A Review",
+      "Randomized clinical trials have reported absolute reductions in microvascular disease. Several randomized clinical trials have demonstrated benefits of SGLT2i medications. Most trial participants with type 2 diabetes were taking metformin.",
+    );
+    expect(diabetes).toMatchObject({
+      studyType: "Narrative Review",
+      grade: "V",
+    });
+    const angina = classifyEvidence(
+      "Diagnosis and Management of Stable Angina: A Review",
+      "Randomized clinical trials showed no improvement in the rates of mortality or myocardial infarction with revascularization compared with optimal medical therapy alone.",
+    );
+    expect(angina).toMatchObject({
+      studyType: "Narrative Review",
+      grade: "V",
+    });
   });
 });

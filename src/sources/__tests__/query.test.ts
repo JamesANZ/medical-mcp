@@ -5,12 +5,14 @@ import {
   dedupeBy,
   dedupeSafetyEvents,
   dedupeTrials,
+  deprioritizeUnknownStatus,
   escapeLuceneToken,
   essieAnd,
   buildClinicalTrialsQuery,
   openFdaAnd,
   openFdaAnyFieldAnd,
   tokenize,
+  trialMatchesDrugTerms,
 } from "../query.js";
 import {
   catalogSources,
@@ -72,11 +74,52 @@ describe("query builder", () => {
       "query.term": "motor AND neurone AND disease",
     });
     expect(buildClinicalTrialsQuery("atorvastatin")).toEqual({
-      "query.term": "atorvastatin",
+      "query.intr": "atorvastatin",
     });
     expect(buildClinicalTrialsQuery("semaglutide heart failure")).toEqual({
-      "query.term": "semaglutide AND heart AND failure",
+      "query.cond": '"heart failure"',
+      "query.intr": "semaglutide",
     });
+    const hfpef = buildClinicalTrialsQuery(
+      "semaglutide heart failure preserved ejection fraction",
+    );
+    expect(hfpef["query.intr"]).toBe("semaglutide");
+    expect(hfpef["query.cond"]).toMatch(/HFpEF/);
+    expect(hfpef["query.cond"]).toMatch(/heart failure/);
+    expect(hfpef["query.cond"]).toMatch(/STEP-HFpEF/);
+    expect(hfpef["query.term"]).toBeUndefined();
+  });
+
+  test("drops trials that do not mention the queried drug", () => {
+    const exercise: ClinicalTrial = {
+      source: "ClinicalTrials.gov",
+      country: "US",
+      title: "Tailored Exercise Training Study Among Adults With HFpEF",
+      id: "NCT07223242",
+      status: "RECRUITING",
+    };
+    const step: ClinicalTrial = {
+      source: "ClinicalTrials.gov",
+      country: "US",
+      title:
+        "Research Study to Investigate How Well Semaglutide Works in People Living With Heart Failure and Obesity (STEP-HFpEF)",
+      id: "NCT04788511",
+      acronym: "STEP-HFpEF",
+      interventions: ["Semaglutide"],
+      status: "COMPLETED",
+    };
+    const unknown: ClinicalTrial = {
+      source: "ClinicalTrials.gov",
+      country: "US",
+      title: "Some semaglutide study",
+      id: "NCT06541509",
+      status: "UNKNOWN",
+    };
+    expect(trialMatchesDrugTerms(exercise, ["semaglutide"])).toBe(false);
+    expect(trialMatchesDrugTerms(step, ["semaglutide"])).toBe(true);
+    expect(
+      deprioritizeUnknownStatus([unknown, step]).map((trial) => trial.id),
+    ).toEqual(["NCT04788511", "NCT06541509"]);
   });
 });
 

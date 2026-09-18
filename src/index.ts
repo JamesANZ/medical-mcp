@@ -391,13 +391,14 @@ server.tool(
 // Health Check Tool
 server.tool(
   "health-check",
-  "Check the health and availability of all upstream data sources (FDA, TGA, Health Canada, EMA, PubMed, WHO, RxNorm, ClinicalTrials, Semantic Scholar, TinyFish). Reports latency, circuit breaker states, and cache health.",
+  "Check the health and availability of all upstream data sources (FDA, TGA, Health Canada, EMA, PubMed, WHO, RxNorm, ClinicalTrials, Semantic Scholar, TinyFish). Reports build string, latency, circuit breaker states, and cache health.",
   {},
   async () => {
     try {
       const health = await getSourceHealth();
 
-      let text = `**Medical MCP Server Health Check**\n\n`;
+      let text = `**Medical MCP Server Health Check**\n`;
+      text += `Build: \`${health.build}\`\n\n`;
 
       // Source availability
       text += `## Data Sources\n\n`;
@@ -544,7 +545,12 @@ server.tool(
   async ({ query, limit }) => {
     try {
       const result = await searchPediatricDrugsCached(query, limit);
-      return formatPediatricDrugs(result.data, query, result.metadata);
+      return formatPediatricDrugs(
+        result.data.drugs,
+        query,
+        result.metadata,
+        result.data.labelsRetrieved,
+      );
     } catch (error: any) {
       return createErrorResponse("searching pediatric drugs", error);
     }

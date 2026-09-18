@@ -7,7 +7,11 @@ import {
   safeValidate,
 } from "../../validation/schemas.js";
 import { timedHealthCheck } from "../http.js";
-import { buildClinicalTrialsQuery } from "../query.js";
+import {
+  analyzeTrialQuery,
+  deprioritizeUnknownStatus,
+  trialMatchesDrugTerms,
+} from "../query.js";
 import type { ClinicalTrial, SearchOpts, SourceAdapter } from "../types.js";
 
 type Study = {
@@ -15,6 +19,7 @@ type Study = {
     identificationModule?: {
       briefTitle?: string;
       officialTitle?: string;
+      acronym?: string;
       nctId?: string;
       leadSponsor?: { name?: string };
       briefSummary?: string;
@@ -22,6 +27,15 @@ type Study = {
     statusModule?: {
       overallStatus?: string;
       startDateStruct?: { date?: string };
+    };
+    sponsorCollaboratorsModule?: {
+      leadSponsor?: { name?: string };
+    };
+    descriptionModule?: {
+      briefSummary?: string;
+    };
+    armsInterventionsModule?: {
+      interventions?: Array<{ name?: string }>;
     };
     contactsLocationsModule?: {
       locations?: Array<{ country?: string }>;
@@ -37,15 +51,26 @@ export function mapClinicalTrial(study: Study): ClinicalTrial {
   )
     .map((location) => location.country)
     .filter((country): country is string => Boolean(country));
+  const interventions = (
+    study.protocolSection?.armsInterventionsModule?.interventions || []
+  )
+    .map((intervention) => intervention.name)
+    .filter((name): name is string => Boolean(name));
   return {
     source: "ClinicalTrials.gov",
     country: countries[0] || "INTL",
     title: id?.briefTitle || id?.officialTitle || "Clinical trial",
     id: id?.nctId,
     status: status?.overallStatus,
-    sponsor: id?.leadSponsor?.name,
-    summary: id?.briefSummary,
+    sponsor:
+      study.protocolSection?.sponsorCollaboratorsModule?.leadSponsor?.name ||
+      id?.leadSponsor?.name,
+    summary:
+      study.protocolSection?.descriptionModule?.briefSummary ||
+      id?.briefSummary,
     startDate: status?.startDateStruct?.date,
+    acronym: id?.acronym,
+    interventions,
     url: id?.nctId
       ? `https://clinicaltrials.gov/study/${id.nctId}`
       : "https://clinicaltrials.gov/",
@@ -57,10 +82,15 @@ export async function searchClinicalTrialsApi(
   opts: SearchOpts = {},
 ): Promise<ClinicalTrial[]> {
   const limit = opts.limit ?? 10;
+  const analyzed = analyzeTrialQuery(query);
+  const pageSize =
+    analyzed.drugTerms.length > 0
+      ? Math.min(Math.max(limit * 5, 20), 50)
+      : limit;
   const params: Record<string, string | number> = {
-    ...buildClinicalTrialsQuery(query),
+    ...analyzed.params,
     format: "json",
-    pageSize: limit,
+    pageSize,
   };
   if (opts.extra?.location) {
     params["query.locn"] = String(opts.extra.location);
@@ -78,9 +108,13 @@ export async function searchClinicalTrialsApi(
       res.body,
       "ClinicalTrials",
     );
-    return (validated.studies || []).map((study) =>
+    const mapped = (validated.studies || []).map((study) =>
       mapClinicalTrial(study as Study),
     );
+    const matched = mapped.filter((trial) =>
+      trialMatchesDrugTerms(trial, analyzed.drugTerms),
+    );
+    return deprioritizeUnknownStatus(matched).slice(0, limit);
   } catch (error) {
     logger.warn(
       "ClinicalTrials",

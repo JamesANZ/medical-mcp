@@ -76,11 +76,12 @@ const RULES: ClassificationRule[] = [
     patterns: [
       /\brandomized\s+controlled\s+trial\b/i,
       /\brandomised\s+controlled\s+trial\b/i,
-      /\brandom(ized|ised)\b.*\btrial\b/i,
+      /\brandom(?:ized|ised)\s+(?:clinical\s+)?trial\b/i,
+      /\bthis\s+random(?:ized|ised)\b/i,
+      /\bwe\s+(?:conducted|performed|undertook)\s+a\s+random(?:ized|ised)\b/i,
       /\bRCT\b/,
       /\bdouble[\s-]?blind\b/i,
       /\bplacebo[\s-]?controlled\b/i,
-      /\bclinical\s+trial\b.*\brandom/i,
     ],
   },
   {
@@ -145,24 +146,78 @@ const RULES: ClassificationRule[] = [
   },
 ];
 
+function matchesRule(rule: ClassificationRule, text: string): boolean {
+  return rule.patterns.some((pattern) => pattern.test(text));
+}
+
+function titleIsNarrativeReview(title: string): boolean {
+  if (
+    /\bsystematic\s+review\b/i.test(title) ||
+    /\bmeta[\s-]?analysis\b/i.test(title)
+  ) {
+    return false;
+  }
+  return (
+    /:\s*a\s+review\b/i.test(title) ||
+    /\bnarrative\s+review\b/i.test(title) ||
+    /\bliterature\s+review\b/i.test(title) ||
+    /\bscoping\s+review\b/i.test(title) ||
+    /\bstate[\s-]?of[\s-]?the[\s-]?art\s+review\b/i.test(title) ||
+    /\ba\s+review\s*$/i.test(title)
+  );
+}
+
 /**
  * Classify a paper by study type and evidence grade.
+ * Title review markers beat RCT wording in the abstract — JAMA reviews
+ * routinely discuss randomized trials without being one.
  */
 export function classifyEvidence(
   title: string,
   abstract?: string,
 ): EvidenceTag {
-  const searchText = `${title || ""} ${abstract || ""}`;
+  const titleText = title || "";
+  const searchText = `${titleText} ${abstract || ""}`;
+
+  const protocol = RULES.find((rule) => rule.studyType === "Study Protocol");
+  const systematic = RULES.find(
+    (rule) => rule.studyType === "Systematic Review / Meta-Analysis",
+  );
+  if (protocol && matchesRule(protocol, searchText)) {
+    return {
+      studyType: protocol.studyType,
+      grade: protocol.grade,
+      sortPriority: protocol.priority,
+    };
+  }
+  if (systematic && matchesRule(systematic, searchText)) {
+    return {
+      studyType: systematic.studyType,
+      grade: systematic.grade,
+      sortPriority: systematic.priority,
+    };
+  }
+  if (titleIsNarrativeReview(titleText)) {
+    return {
+      studyType: "Narrative Review",
+      grade: "V",
+      sortPriority: 6,
+    };
+  }
 
   for (const rule of RULES) {
-    for (const pattern of rule.patterns) {
-      if (pattern.test(searchText)) {
-        return {
-          studyType: rule.studyType,
-          grade: rule.grade,
-          sortPriority: rule.priority,
-        };
-      }
+    if (
+      rule.studyType === "Study Protocol" ||
+      rule.studyType === "Systematic Review / Meta-Analysis"
+    ) {
+      continue;
+    }
+    if (matchesRule(rule, searchText)) {
+      return {
+        studyType: rule.studyType,
+        grade: rule.grade,
+        sortPriority: rule.priority,
+      };
     }
   }
 

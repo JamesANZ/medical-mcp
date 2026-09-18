@@ -30,10 +30,13 @@ import {
   normalizeAapUrl,
 } from "./utils/aap-urls.js";
 import {
+  extractOrganizationName,
   organizationFilterMatches,
-  ORG_ALIASES,
-  ORG_EXTRACTION_PATTERNS,
 } from "./utils/organization.js";
+import {
+  expandGuidelineQuery,
+  expandPediatricQuery,
+} from "./utils/query-expand.js";
 import { parsePubMedXML, pmcRecordMatchesArticle } from "./utils/pubmed-xml.js";
 import {
   formatCompactDate,
@@ -62,6 +65,10 @@ import {
   formatEvidenceTag,
 } from "./utils/evidence-grading.js";
 import {
+  fdaLabelHasPediatricUse,
+  pediatricDrugsEmptyMessage,
+} from "./utils/pediatric-label.js";
+import {
   resilientCall,
   CircuitOpenError,
   getAllCircuitStatus,
@@ -76,6 +83,7 @@ import {
   safeValidate,
 } from "./validation/schemas.js";
 import { logger } from "./logger.js";
+import { getBuildString } from "./utils/build-info.js";
 
 export { parsePubMedXML } from "./utils/pubmed-xml.js";
 export { isValidPmid } from "./utils/text.js";
@@ -189,11 +197,19 @@ export async function searchDrugs(
       const results = validated.results || [];
       for (const drug of results) {
         const ndc = drug.openfda?.product_ndc?.[0];
-        if (ndc && !seenNDCs.has(ndc)) {
-          seenNDCs.add(ndc);
-          allResults.push(drug as DrugLabel);
-          if (allResults.length >= limit) break;
-        }
+        const identity =
+          ndc ||
+          [
+            drug.openfda?.brand_name?.[0],
+            drug.openfda?.generic_name?.[0],
+            drug.effective_time,
+          ]
+            .filter(Boolean)
+            .join("|");
+        if (!identity || seenNDCs.has(identity)) continue;
+        seenNDCs.add(identity);
+        allResults.push(drug as DrugLabel);
+        if (allResults.length >= limit) break;
       }
       if (allResults.length >= limit) break;
     } catch (error) {
@@ -1146,11 +1162,12 @@ export function formatPediatricDrugs(
   drugs: DrugLabel[],
   query: string,
   metadata?: CacheMetadata,
+  labelsRetrieved = 0,
 ) {
   if (drugs.length === 0) {
     return createMCPResponse(
       appendCacheInfo(
-        `No pediatric drugs found for "${query}". This may indicate the drug is not approved for pediatric use or lacks pediatric labeling information.`,
+        pediatricDrugsEmptyMessage(query, labelsRetrieved),
         metadata,
       ),
     );
@@ -1679,6 +1696,10 @@ function significantGuidelineTokens(query: string): string[] {
 }
 
 function guidelineSearchTerm(query: string): string {
+  const expanded = expandGuidelineQuery(query);
+  if (expanded.concepts.length > 0) {
+    return expanded.pubmedTerm;
+  }
   const tokens = significantGuidelineTokens(query);
   if (tokens.length === 0) {
     return quoteMultiWordQuery(query);
@@ -1701,43 +1722,13 @@ function guidelineTitleMatchesQuery(query: string, title: string): boolean {
   );
 }
 
-const ORG_DISPLAY_NAMES: Record<string, string> = {
-  aap: "American Academy of Pediatrics",
-  who: "World Health Organization",
-  cdc: "Centers for Disease Control and Prevention",
-  aha: "American Heart Association",
-  acc: "American College of Cardiology",
-  ada: "American Diabetes Association",
-  acp: "American College of Physicians",
-  ish: "International Society of Hypertension",
-  esc: "European Society of Cardiology",
-  nice: "National Institute for Health and Care Excellence",
-};
-
-// Helper function to extract organization dynamically using patterns
 function extractOrganization(article: PubMedArticle): string {
-  const title = article.title || "";
-  const titleLower = title.toLowerCase();
-  const matched = Object.entries(ORG_ALIASES)
-    .filter(
-      ([abbr, aliases]) =>
-        aliases.some((alias) => titleLower.includes(alias)) ||
-        new RegExp(`\\b${abbr}\\b`, "i").test(title),
-    )
-    .map(([abbr]) => ORG_DISPLAY_NAMES[abbr] || abbr.toUpperCase());
-  if (matched.length > 0) {
-    return [...new Set(matched)].join(" / ");
-  }
-
-  for (const pattern of ORG_EXTRACTION_PATTERNS) {
-    pattern.lastIndex = 0;
-    const match = title.match(pattern) || article.abstract?.match(pattern);
-    if (match && match[0] && match[0].length > 3) {
-      return match[0];
-    }
-  }
-
-  return "Unknown Organization";
+  return extractOrganizationName(
+    article.title,
+    article.abstract,
+    article.journal,
+    article.authors?.join(" "),
+  );
 }
 
 // Helper function to search PubMed with a query
@@ -1814,7 +1805,7 @@ export async function searchClinicalGuidelines(
     // Layer 1: Publication Type Filter (High Precision)
     const topicTerm = guidelineSearchTerm(query);
     const pubTypeQuery = `${topicTerm} AND (${GUIDELINE_PUBLICATION_TYPES.join(" OR ")})`;
-    const layer1Articles = await searchPubMed(pubTypeQuery, 20);
+    const layer1Articles = await searchPubMed(pubTypeQuery, 40);
 
     for (const article of layer1Articles) {
       if (!guidelineTitleMatchesQuery(query, article.title)) continue;
@@ -1981,7 +1972,7 @@ export async function searchBrightFuturesGuidelines(
     "BrightFutures",
     `Searching Bright Futures via PubMed and Monid for: ${query}`,
   );
-  const pubmedQuery = `(${quoteMultiWordQuery(query)}) AND "Bright Futures"[tiab]`;
+  const pubmedQuery = `(${expandPediatricQuery(query)}) AND "Bright Futures"[tiab]`;
   const pubmed = await searchPubMed(pubmedQuery, 8);
   const fromPubmed: PediatricGuideline[] = pubmed.map((article) => ({
     title: article.title,
@@ -2030,7 +2021,7 @@ export async function searchAAPPolicyStatements(
     "AAPPolicy",
     `Searching AAP policy statements via PubMed and Monid for: ${query}`,
   );
-  const pubmedQuery = `(${quoteMultiWordQuery(query)}) AND ("American Academy of Pediatrics"[Corporate Author] OR ("Pediatrics"[Journal] AND ("policy statement"[ti] OR "clinical report"[ti] OR "clinical practice guideline"[ti] OR "technical report"[ti])))`;
+  const pubmedQuery = `(${expandPediatricQuery(query)}) AND ("American Academy of Pediatrics"[Corporate Author] OR ("Pediatrics"[Journal] AND ("policy statement"[ti] OR "clinical report"[ti] OR "clinical practice guideline"[ti] OR "technical report"[ti])))`;
   const pubmed = await searchPubMed(pubmedQuery, 10);
   const fromPubmed: PediatricGuideline[] = pubmed.map((article) => {
     const classified = classifyAapResult(
@@ -2126,37 +2117,18 @@ export async function searchPediatricJournals(
 export async function searchPediatricDrugs(
   query: string,
   limit: number = 10,
-): Promise<DrugLabel[]> {
+): Promise<{ drugs: DrugLabel[]; labelsRetrieved: number }> {
   try {
-    // Search FDA drugs
-    const drugs = await searchDrugs(query, limit * 2); // Get more to filter
-
-    // Filter for pediatric labeling
-    const pediatricDrugs = drugs.filter((drug) => {
-      // Check purpose for pediatric indications
-      const purpose = drug.purpose?.join(" ").toLowerCase() || "";
-      const warnings = drug.warnings?.join(" ").toLowerCase() || "";
-      const dosage =
-        drug.dosage_and_administration?.join(" ").toLowerCase() || "";
-
-      const hasPediatricIndication =
-        purpose.includes("pediatric") ||
-        purpose.includes("child") ||
-        purpose.includes("infant") ||
-        purpose.includes("neonatal") ||
-        warnings.includes("pediatric") ||
-        warnings.includes("child") ||
-        dosage.includes("pediatric") ||
-        dosage.includes("child") ||
-        dosage.includes("pediatric dosing");
-
-      return hasPediatricIndication;
-    });
-
-    return pediatricDrugs.slice(0, limit);
+    const fetchLimit = Math.min(Math.max(limit * 20, 40), 100);
+    const drugs = await searchDrugs(query, fetchLimit);
+    const pediatricDrugs = drugs.filter(fdaLabelHasPediatricUse);
+    return {
+      drugs: pediatricDrugs.slice(0, limit),
+      labelsRetrieved: drugs.length,
+    };
   } catch (error) {
     console.error("Error searching pediatric drugs:", error);
-    return [];
+    return { drugs: [], labelsRetrieved: 0 };
   }
 }
 
@@ -2624,7 +2596,7 @@ export async function searchPediatricJournalsCached(
 export async function searchPediatricDrugsCached(
   query: string,
   limit: number = 10,
-): Promise<CachedResult<DrugLabel[]>> {
+): Promise<CachedResult<{ drugs: DrugLabel[]; labelsRetrieved: number }>> {
   const cacheKey = cacheManager.generateKey(
     "PediatricDrugs",
     "search-pediatric-drugs",
@@ -2636,8 +2608,12 @@ export async function searchPediatricDrugsCached(
   const cached = cacheManager.get(cacheKey);
 
   if (cached) {
+    const raw = cached.data;
+    const data = Array.isArray(raw)
+      ? { drugs: raw as DrugLabel[], labelsRetrieved: raw.length }
+      : raw;
     return {
-      data: cached.data,
+      data,
       metadata: {
         cached: true,
         cacheAge: getCacheAge(cached.timestamp),
@@ -2646,12 +2622,14 @@ export async function searchPediatricDrugsCached(
   }
 
   const data = await searchPediatricDrugs(query, limit);
-  cacheManager.set(
-    cacheKey,
-    data,
-    config.ttls.pediatricDrugs,
-    "PediatricDrugs",
-  );
+  if (data.drugs.length > 0) {
+    cacheManager.set(
+      cacheKey,
+      data,
+      config.ttls.pediatricDrugs,
+      "PediatricDrugs",
+    );
+  }
 
   return {
     data,
@@ -2719,6 +2697,7 @@ export interface SourceHealthStatus {
  * Used by the health-check MCP tool.
  */
 export async function getSourceHealth(): Promise<{
+  build: string;
   sources: SourceHealthStatus[];
   circuitBreakers: ReturnType<typeof getAllCircuitStatus>;
   rateLimiters: ReturnType<typeof getAllRateLimiterStatus>;
@@ -2846,6 +2825,7 @@ export async function getSourceHealth(): Promise<{
   }
 
   return {
+    build: getBuildString(),
     sources,
     circuitBreakers: getAllCircuitStatus(),
     rateLimiters: getAllRateLimiterStatus(),
