@@ -31,12 +31,10 @@ import {
 } from "./utils/aap-urls.js";
 import {
   organizationFilterMatches,
+  ORG_ALIASES,
   ORG_EXTRACTION_PATTERNS,
 } from "./utils/organization.js";
-import {
-  parsePubMedXML,
-  pmcRecordMatchesArticle,
-} from "./utils/pubmed-xml.js";
+import { parsePubMedXML, pmcRecordMatchesArticle } from "./utils/pubmed-xml.js";
 import {
   formatCompactDate,
   isValidPmid,
@@ -44,7 +42,11 @@ import {
   redactEmails,
   truncateWithNotice,
 } from "./utils/text.js";
-import { mapWhoDataValue, sortWhoValues } from "./utils/who-gho.js";
+import {
+  mapWhoDataValue,
+  sortWhoValues,
+  latestWhoSnapshot,
+} from "./utils/who-gho.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
 import { deduplicatePapers } from "./utils/deduplication.js";
@@ -329,7 +331,7 @@ export async function getHealthIndicators(
       }
     }
 
-    return sortWhoValues(results);
+    return latestWhoSnapshot(sortWhoValues(results));
   } catch (error) {
     console.error("Error fetching WHO indicators:", error);
     return [];
@@ -441,7 +443,8 @@ export async function searchRxNormDrugs(
       const ttyB = ttyOrder.indexOf(b.tty);
       const ttyCmp = (ttyA === -1 ? 99 : ttyA) - (ttyB === -1 ? 99 : ttyB);
       if (ttyCmp !== 0) return ttyCmp;
-      const comboCmp = Number(isCombination(a.name)) - Number(isCombination(b.name));
+      const comboCmp =
+        Number(isCombination(a.name)) - Number(isCombination(b.name));
       if (comboCmp !== 0) return comboCmp;
       const strengthCmp = strength(a.name) - strength(b.name);
       if (strengthCmp !== 0) return strengthCmp;
@@ -689,7 +692,7 @@ export function formatHealthIndicators(
   }
   result += `Found ${indicators.length} data point(s) across ${categorized.size} category/categories\n\n`;
 
-    // Sort categories by priority (Life Expectancy first, then others)
+  // Sort categories by priority (Life Expectancy first, then others)
   const categoryOrder = [
     "Life Expectancy - At Birth",
     "Life Expectancy - Healthy",
@@ -722,7 +725,13 @@ export function formatHealthIndicators(
       const yearB = parseInt(b.TimeDim, 10) || 0;
       if (yearB !== yearA) return yearB - yearA;
       const sexOrder = (sex?: string) =>
-        sex === "Both sexes" ? 0 : sex === "Female" ? 1 : sex === "Male" ? 2 : 3;
+        sex === "Both sexes"
+          ? 0
+          : sex === "Female"
+            ? 1
+            : sex === "Male"
+              ? 2
+              : 3;
       const sexCmp = sexOrder(a.Sex) - sexOrder(b.Sex);
       if (sexCmp !== 0) return sexCmp;
       return (b.NumericValue || 0) - (a.NumericValue || 0);
@@ -1211,7 +1220,8 @@ export function formatPediatricDrugs(
     if (drug.openfda?.dosage_form?.[0]) {
       result += `   Form: ${drug.openfda.dosage_form[0]}\n`;
     }
-    const effective = formatCompactDate(drug.effective_time) || drug.effective_time;
+    const effective =
+      formatCompactDate(drug.effective_time) || drug.effective_time;
     result += `   Effective Time: ${effective}\n`;
     result += "\n";
   });
@@ -1458,58 +1468,37 @@ export async function searchPubMedArticles(
   maxResults: number = 10,
 ): Promise<PubMedArticle[]> {
   try {
-    // Build query params with optional API key (3/sec → 10/sec)
-    const searchParams: Record<string, any> = {
-      db: "pubmed",
-      term: query,
-      retmode: "json",
-      retmax: maxResults,
-      sort: "relevance",
-    };
-    if (NCBI_API_KEY) {
-      searchParams.api_key = NCBI_API_KEY;
+    const phrase = quoteMultiWordQuery(query);
+    const anded = query.trim().split(/\s+/).filter(Boolean).join(" AND ");
+    const generalTerm =
+      phrase === anded || !/\s/.test(query.trim())
+        ? query.trim()
+        : `(${phrase}) OR (${anded})`;
+    const evidenceTerm = `(${generalTerm}) AND ("systematic review"[pt] OR "meta-analysis"[pt] OR "randomized controlled trial"[pt] OR "clinical trial, phase iii"[pt])`;
+
+    const [highEvidence, general] = await Promise.all([
+      searchPubMed(evidenceTerm, maxResults),
+      searchPubMed(generalTerm, maxResults),
+    ]);
+
+    const seen = new Set<string>();
+    const merged: PubMedArticle[] = [];
+    for (const article of [...highEvidence, ...general]) {
+      if (!article.pmid || seen.has(article.pmid)) continue;
+      seen.add(article.pmid);
+      merged.push(article);
     }
 
-    // First, search for article IDs
-    const searchRes = await resilientCall("PubMed", async () =>
-      superagent
-        .get(`${PUBMED_API_BASE}/esearch.fcgi`)
-        .query(searchParams)
-        .set("User-Agent", USER_AGENT)
-        .timeout({ response: 15_000, deadline: 30_000 }),
-    );
+    merged.sort((a, b) => {
+      const evidenceA = classifyEvidence(a.title, a.abstract);
+      const evidenceB = classifyEvidence(b.title, b.abstract);
+      if (evidenceA.sortPriority !== evidenceB.sortPriority) {
+        return evidenceA.sortPriority - evidenceB.sortPriority;
+      }
+      return (b.publication_date || "").localeCompare(a.publication_date || "");
+    });
 
-    const validated = safeValidate(
-      PubMedSearchResponseSchema,
-      searchRes.body,
-      "PubMed",
-    );
-    const idList = validated.esearchresult?.idlist || [];
-
-    if (idList.length === 0) return [];
-
-    // Then, fetch article details
-    const fetchParams: Record<string, any> = {
-      db: "pubmed",
-      id: idList.join(","),
-      retmode: "xml",
-    };
-    if (NCBI_API_KEY) {
-      fetchParams.api_key = NCBI_API_KEY;
-    }
-
-    const fetchRes = await resilientCall("PubMed", async () =>
-      superagent
-        .get(`${PUBMED_API_BASE}/efetch.fcgi`)
-        .query(fetchParams)
-        .set("User-Agent", USER_AGENT)
-        .timeout({ response: 20_000, deadline: 45_000 }),
-    );
-
-    const articles = parsePubMedXML(fetchRes.text);
-
-    const dedupResult = deduplicatePapers(articles);
-    return dedupResult.papers as PubMedArticle[];
+    return merged.slice(0, maxResults);
   } catch (error) {
     console.error("Error searching PubMed:", error);
     return [];
@@ -1644,40 +1633,111 @@ function calculateGuidelineScore(
   return score;
 }
 
+const GUIDELINE_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "the",
+  "for",
+  "in",
+  "of",
+  "on",
+  "to",
+  "with",
+  "adult",
+  "adults",
+  "clinical",
+  "practice",
+  "guideline",
+  "guidelines",
+  "management",
+  "treatment",
+  "update",
+  "updated",
+  "recommendation",
+  "recommendations",
+]);
+
+const GUIDELINE_SYNONYMS: Record<string, string[]> = {
+  hypertension: [
+    "hypertension",
+    "hypertensive",
+    "blood pressure",
+    "high blood pressure",
+  ],
+  diabetes: ["diabetes", "diabetic", "glucose"],
+  asthma: ["asthma", "asthmatic"],
+  copd: ["copd", "chronic obstructive"],
+};
+
+function significantGuidelineTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^\w-]/g, ""))
+    .filter((token) => token.length > 2 && !GUIDELINE_STOPWORDS.has(token));
+}
+
+function guidelineSearchTerm(query: string): string {
+  const tokens = significantGuidelineTokens(query);
+  if (tokens.length === 0) {
+    return quoteMultiWordQuery(query);
+  }
+  const parts = tokens.flatMap((token) => GUIDELINE_SYNONYMS[token] || [token]);
+  const unique = [...new Set(parts)];
+  return `(${unique
+    .map((part) => (/\s/.test(part) ? `"${part}"` : part))
+    .join(" OR ")})`;
+}
+
+function guidelineTitleMatchesQuery(query: string, title: string): boolean {
+  const tokens = significantGuidelineTokens(query);
+  if (tokens.length === 0) return true;
+  const haystack = title.toLowerCase();
+  return tokens.some((token) =>
+    (GUIDELINE_SYNONYMS[token] || [token]).some((alias) =>
+      haystack.includes(alias),
+    ),
+  );
+}
+
+const ORG_DISPLAY_NAMES: Record<string, string> = {
+  aap: "American Academy of Pediatrics",
+  who: "World Health Organization",
+  cdc: "Centers for Disease Control and Prevention",
+  aha: "American Heart Association",
+  acc: "American College of Cardiology",
+  ada: "American Diabetes Association",
+  acp: "American College of Physicians",
+  ish: "International Society of Hypertension",
+  esc: "European Society of Cardiology",
+  nice: "National Institute for Health and Care Excellence",
+};
+
 // Helper function to extract organization dynamically using patterns
 function extractOrganization(article: PubMedArticle): string {
-  let org = "Unknown Organization";
-
-  // Try to extract from journal first
-  if (article.journal) {
-    org = article.journal;
+  const title = article.title || "";
+  const titleLower = title.toLowerCase();
+  const matched = Object.entries(ORG_ALIASES)
+    .filter(
+      ([abbr, aliases]) =>
+        aliases.some((alias) => titleLower.includes(alias)) ||
+        new RegExp(`\\b${abbr}\\b`, "i").test(title),
+    )
+    .map(([abbr]) => ORG_DISPLAY_NAMES[abbr] || abbr.toUpperCase());
+  if (matched.length > 0) {
+    return [...new Set(matched)].join(" / ");
   }
 
-  // Try to extract from abstract using generic patterns
-  if (article.abstract) {
-    for (const pattern of ORG_EXTRACTION_PATTERNS) {
-      const matches = article.abstract.match(pattern);
-      if (matches && matches.length > 0) {
-        // Take the first full match
-        const fullMatch = matches[0];
-        org = fullMatch;
-        break;
-      }
+  for (const pattern of ORG_EXTRACTION_PATTERNS) {
+    pattern.lastIndex = 0;
+    const match = title.match(pattern) || article.abstract?.match(pattern);
+    if (match && match[0] && match[0].length > 3) {
+      return match[0];
     }
   }
 
-  // Try to extract from title if still unknown
-  if (org === "Unknown Organization" && article.title) {
-    for (const pattern of ORG_EXTRACTION_PATTERNS) {
-      const matches = article.title.match(pattern);
-      if (matches && matches.length > 0) {
-        org = matches[0];
-        break;
-      }
-    }
-  }
-
-  return org;
+  return "Unknown Organization";
 }
 
 // Helper function to search PubMed with a query
@@ -1752,10 +1812,12 @@ export async function searchClinicalGuidelines(
     }> = [];
 
     // Layer 1: Publication Type Filter (High Precision)
-    const pubTypeQuery = `(${query}) AND (${GUIDELINE_PUBLICATION_TYPES.join(" OR ")})`;
+    const topicTerm = guidelineSearchTerm(query);
+    const pubTypeQuery = `${topicTerm} AND (${GUIDELINE_PUBLICATION_TYPES.join(" OR ")})`;
     const layer1Articles = await searchPubMed(pubTypeQuery, 20);
 
     for (const article of layer1Articles) {
+      if (!guidelineTitleMatchesQuery(query, article.title)) continue;
       const score = calculateGuidelineScore(article, true);
       allArticles.push({ article, score, hasPublicationType: true });
     }
@@ -1767,10 +1829,11 @@ export async function searchClinicalGuidelines(
       const semanticKeywords = GUIDELINE_KEYWORDS.slice(0, 5)
         .map((k) => `${k}[tiab]`)
         .join(" OR ");
-      const semanticQuery = `(${query}) AND (${semanticKeywords})`;
+      const semanticQuery = `${topicTerm} AND (${semanticKeywords})`;
       const layer2Articles = await searchPubMed(semanticQuery, 20);
 
       for (const article of layer2Articles) {
+        if (!guidelineTitleMatchesQuery(query, article.title)) continue;
         // Check if we already have this article (by PMID)
         const existing = allArticles.find(
           (a) => a.article.pmid === article.pmid,
@@ -1931,14 +1994,16 @@ export async function searchBrightFuturesGuidelines(
     source: "bright-futures" as const,
   }));
 
-  const web = (await searchTinyFish(query, {
-    limit: 10,
-    extra: {
-      domainType: "web",
-      includeDomains: "brightfutures.aap.org",
-      purpose: "Find AAP Bright Futures pediatric preventive care guidelines",
-    },
-  }))
+  const web = (
+    await searchTinyFish(query, {
+      limit: 10,
+      extra: {
+        domainType: "web",
+        includeDomains: "brightfutures.aap.org",
+        purpose: "Find AAP Bright Futures pediatric preventive care guidelines",
+      },
+    })
+  )
     .filter((item) => isAllowedAapUrl(item.url))
     .map((item) => {
       const url = normalizeAapUrl(item.url || "");
@@ -1983,14 +2048,16 @@ export async function searchAAPPolicyStatements(
     };
   });
 
-  const web = (await searchTinyFish(query, {
-    limit: 10,
-    extra: {
-      domainType: "web",
-      includeDomains: "publications.aap.org,aap.org",
-      purpose: "Find AAP policy statements and pediatric clinical guidelines",
-    },
-  }))
+  const web = (
+    await searchTinyFish(query, {
+      limit: 10,
+      extra: {
+        domainType: "web",
+        includeDomains: "publications.aap.org,aap.org",
+        purpose: "Find AAP policy statements and pediatric clinical guidelines",
+      },
+    })
+  )
     .filter((item) => isAllowedAapUrl(item.url))
     .map((item) => {
       const url = normalizeAapUrl(item.url || "");
@@ -2009,7 +2076,9 @@ export async function searchAAPPolicyStatements(
   return dedupeGuidelines([...fromPubmed, ...web]);
 }
 
-function dedupeGuidelines(guidelines: PediatricGuideline[]): PediatricGuideline[] {
+function dedupeGuidelines(
+  guidelines: PediatricGuideline[],
+): PediatricGuideline[] {
   return guidelines.filter(
     (item, index, self) =>
       index ===

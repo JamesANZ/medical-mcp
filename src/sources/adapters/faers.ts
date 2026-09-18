@@ -2,9 +2,9 @@ import superagent from "superagent";
 import { FDA_API_BASE, USER_AGENT } from "../../constants.js";
 import { logger } from "../../logger.js";
 import { resilientCall } from "../../resilience/index.js";
+import { openFdaAnyFieldAnd, tokenize } from "../query.js";
 import { formatCompactDate } from "../../utils/text.js";
 import { timedHealthCheck } from "../http.js";
-import { openFdaAnyFieldAnd, tokenize } from "../query.js";
 import type { SafetyEvent, SearchOpts, SourceAdapter } from "../types.js";
 
 const FAERS_DRUG_FIELDS = [
@@ -21,6 +21,11 @@ type FaersEvent = {
     reaction?: Array<{ reactionmeddrapt?: string }>;
     drug?: Array<{ medicinalproduct?: string }>;
   };
+};
+
+type FaersCountRow = {
+  term?: string;
+  count?: number;
 };
 
 function promoteQueryMatches(drugs: string[], query: string): string[] {
@@ -78,17 +83,62 @@ export function mapFaersEvent(event: FaersEvent, query: string): SafetyEvent {
   };
 }
 
+export function mapFaersCount(
+  row: FaersCountRow,
+  query: string,
+): SafetyEvent | null {
+  const term = row.term?.trim();
+  const count = row.count;
+  if (!term || !count) return null;
+  const search = `${openFdaAnyFieldAnd(FAERS_DRUG_FIELDS, query)} AND patient.reaction.reactionmeddrapt:"${term.replace(/"/g, "")}"`;
+  return {
+    source: "FDA FAERS",
+    country: "US",
+    kind: "adverse_event",
+    title: term,
+    summary: `${count.toLocaleString("en-US")} FAERS reports named this reaction. Counts are not incidence and do not prove causation.`,
+    url: `https://api.fda.gov/drug/event.json?search=${encodeURIComponent(search)}&limit=1`,
+  };
+}
+
 async function searchFaers(
   query: string,
   opts: SearchOpts = {},
 ): Promise<SafetyEvent[]> {
   const limit = opts.limit ?? 10;
+  const search = openFdaAnyFieldAnd(FAERS_DRUG_FIELDS, query);
   try {
     const res = await resilientCall("FAERS", async () =>
       superagent
         .get(`${FDA_API_BASE}/drug/event.json`)
         .query({
-          search: openFdaAnyFieldAnd(FAERS_DRUG_FIELDS, query),
+          search,
+          count: "patient.reaction.reactionmeddrapt.exact",
+        })
+        .set("User-Agent", USER_AGENT)
+        .timeout({ response: 15_000, deadline: 30_000 }),
+    );
+    const rows = (res.body?.results || []) as FaersCountRow[];
+    const aggregated = rows
+      .map((row) => mapFaersCount(row, query))
+      .filter((event): event is SafetyEvent => Boolean(event))
+      .slice(0, limit);
+    if (aggregated.length > 0) {
+      return aggregated;
+    }
+  } catch (error) {
+    logger.warn(
+      "FAERS",
+      `Count search failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    const res = await resilientCall("FAERS", async () =>
+      superagent
+        .get(`${FDA_API_BASE}/drug/event.json`)
+        .query({
+          search,
           sort: "receivedate:desc",
           limit,
         })

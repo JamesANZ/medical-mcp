@@ -231,12 +231,12 @@ All upstream API responses are validated against Zod schemas. If a source change
 
 **Performance & Reliability:**
 
-| Variable           | Default  | Description                                                                                                                                                                    |
-| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `NCBI_API_KEY`     | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)                                                                         |
+| Variable           | Default  | Description                                                                                                                                                           |
+| ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NCBI_API_KEY`     | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)                                                                |
 | `MONID_API_KEY`    | _(none)_ | Optional. When set, Scholar/AAP/PMC HTML use Monid's TinyFish search and fetch (Tavily-style web scraper). Get a key at [Monid](https://app.monid.ai/access/api-keys) |
-| `TINYFISH_API_KEY` | _(none)_ | Optional fallback if you call TinyFish directly instead of through Monid.                                                                                                      |
-| `LOG_LEVEL`        | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                                                                                                      |
+| `TINYFISH_API_KEY` | _(none)_ | Optional fallback if you call TinyFish directly instead of through Monid.                                                                                             |
+| `LOG_LEVEL`        | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                                                                                             |
 
 **Cache:**
 

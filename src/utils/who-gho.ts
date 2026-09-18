@@ -18,15 +18,23 @@ export function formatWhoDimension(
   type?: string,
   value?: string,
 ): { label: string; text: string } | undefined {
-  if (!type || !value) return undefined;
-  const upper = type.toUpperCase();
-  if (upper === "SEX") {
-    return { label: "Sex", text: formatWhoSex(value) };
+  if (!value) return undefined;
+  const inferredSex = inferSexLabel(value);
+  const upper = (type || "").toUpperCase();
+  if (upper === "SEX" || inferredSex) {
+    return { label: "Sex", text: inferredSex || formatWhoSex(value) };
   }
   if (upper === "AGEGROUP" || upper === "AGE") {
     return { label: "Age Group", text: value };
   }
+  if (!type) return undefined;
   return { label: type, text: value };
+}
+
+function inferSexLabel(value?: string): string {
+  if (!value) return "";
+  const normalized = value.toUpperCase().replace(/^SEX[_-]?/, "");
+  return SEX_LABELS[normalized] || "";
 }
 
 type WhoDataItem = {
@@ -116,4 +124,29 @@ export function sortWhoValues<T extends { TimeDim?: string | number }>(
     const yearB = parseInt(String(b.TimeDim), 10) || 0;
     return yearB - yearA;
   });
+}
+
+/** Keep every sex/age slice for the latest year of each indicator. */
+export function latestWhoSnapshot<
+  T extends { IndicatorCode?: string; TimeDim?: string | number },
+>(rows: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = row.IndicatorCode || "";
+    const list = groups.get(key) || [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  const out: T[] = [];
+  for (const list of groups.values()) {
+    const maxYear = Math.max(
+      ...list.map((row) => parseInt(String(row.TimeDim), 10) || 0),
+    );
+    out.push(
+      ...list.filter(
+        (row) => (parseInt(String(row.TimeDim), 10) || 0) === maxYear,
+      ),
+    );
+  }
+  return out;
 }

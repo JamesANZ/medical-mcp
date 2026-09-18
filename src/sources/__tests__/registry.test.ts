@@ -2,7 +2,7 @@ import { fanoutSearch } from "../fanout.js";
 import { listSources, registerSource, resetRegistry } from "../registry.js";
 import { resetDefaultSources, registerDefaultSources } from "../register.js";
 import { filterEmaMedicines, mapEmaMedicine } from "../adapters/ema.js";
-import { mapFdaResult } from "../adapters/fda.js";
+import { mapFdaApplication, mapFdaResult } from "../adapters/fda.js";
 import { mapTgaResult } from "../adapters/tga.js";
 import {
   mapTinyFishResult,
@@ -85,6 +85,35 @@ describe("source mappers", () => {
     });
     expect(product.country).toBe("US");
     expect(product.identifier).toEqual({ type: "NDC", value: "0169-4132" });
+  });
+
+  test("maps Drugs@FDA applications to unique brands", () => {
+    const products = mapFdaApplication({
+      application_number: "NDA209637",
+      sponsor_name: "NOVO NORDISK INC",
+      products: [
+        {
+          brand_name: "OZEMPIC",
+          dosage_form: "INJECTABLE",
+          route: "SUBCUTANEOUS",
+          marketing_status: "Prescription",
+        },
+        {
+          brand_name: "OZEMPIC",
+          dosage_form: "INJECTABLE",
+          route: "SUBCUTANEOUS",
+          marketing_status: "Prescription",
+        },
+      ],
+      openfda: { substance_name: ["SEMAGLUTIDE"] },
+    });
+    expect(products).toHaveLength(1);
+    expect(products[0].productName).toBe("OZEMPIC");
+    expect(products[0].identifier).toEqual({
+      type: "Application",
+      value: "NDA209637",
+    });
+    expect(products[0].sponsor).toBe("NOVO NORDISK INC");
   });
 
   test("maps TGA ARTG entries", () => {

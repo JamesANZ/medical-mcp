@@ -5,8 +5,16 @@ import {
 } from "../pubmed-xml.js";
 import { organizationFilterMatches } from "../organization.js";
 import { isAllowedAapUrl, classifyAapResult } from "../aap-urls.js";
-import { decodeHtmlEntities, isValidPmid, quoteMultiWordQuery } from "../text.js";
-import { mapWhoDataValue, sortWhoValues } from "../who-gho.js";
+import {
+  decodeHtmlEntities,
+  isValidPmid,
+  quoteMultiWordQuery,
+} from "../text.js";
+import {
+  mapWhoDataValue,
+  sortWhoValues,
+  latestWhoSnapshot,
+} from "../who-gho.js";
 import { classifyEvidence } from "../evidence-grading.js";
 
 const TIGHTEN_XML = `
@@ -122,7 +130,8 @@ describe("organization filter", () => {
   test("does not treat English 'who' as WHO", () => {
     expect(
       organizationFilterMatches("WHO", {
-        organization: "ISH Africa guideline authors who deliver most of the primary care",
+        organization:
+          "ISH Africa guideline authors who deliver most of the primary care",
         title: "Hypertension guideline",
         abstract: "Clinicians who deliver most of the primary care",
         journal: "Journal of Hypertension",
@@ -192,11 +201,38 @@ describe("helpers", () => {
         Dim1: "FMLE",
         Unit: "years",
       },
-      { IndicatorCode: "WHOSIS_000002", IndicatorName: "Healthy life expectancy" },
+      {
+        IndicatorCode: "WHOSIS_000002",
+        IndicatorName: "Healthy life expectancy",
+      },
     );
     expect(mapped?.IndicatorName).toBe("Healthy life expectancy");
     expect(mapped?.Sex).toBe("Female");
     expect(String(mapped?.Value)).toBe("71.08 years");
+    const inferred = mapWhoDataValue(
+      {
+        SpatialDim: "USA",
+        TimeDim: 2021,
+        NumericValue: 76.37,
+        Dim1: "BTSX",
+      },
+      {
+        IndicatorCode: "WHOSIS_000001",
+        IndicatorName: "Life expectancy at birth",
+      },
+    );
+    expect(inferred?.Sex).toBe("Both sexes");
+    const snapshot = latestWhoSnapshot([
+      { IndicatorCode: "A", TimeDim: "2020", Sex: "Both sexes" },
+      { IndicatorCode: "A", TimeDim: "2021", Sex: "Male" },
+      { IndicatorCode: "A", TimeDim: "2021", Sex: "Female" },
+      { IndicatorCode: "B", TimeDim: "2019" },
+    ]);
+    expect(snapshot).toEqual([
+      { IndicatorCode: "A", TimeDim: "2021", Sex: "Male" },
+      { IndicatorCode: "A", TimeDim: "2021", Sex: "Female" },
+      { IndicatorCode: "B", TimeDim: "2019" },
+    ]);
     const sorted = sortWhoValues([
       { TimeDim: "2012" },
       { TimeDim: "1995" },

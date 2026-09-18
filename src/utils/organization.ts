@@ -1,4 +1,4 @@
-const ORG_ALIASES: Record<string, string[]> = {
+export const ORG_ALIASES: Record<string, string[]> = {
   aap: ["american academy of pediatrics", "american academy pediatric"],
   who: ["world health organization"],
   cdc: ["centers for disease control"],
@@ -49,7 +49,10 @@ export function organizationFilterMatches(
     const whoField = (text: string) =>
       /\bWHO\b/.test(text) || /world health organization/i.test(text);
     return (
-      whoField(org) || whoField(title) || whoField(journal) || whoField(abstract)
+      whoField(org) ||
+      whoField(title) ||
+      whoField(journal) ||
+      whoField(abstract)
     );
   }
 

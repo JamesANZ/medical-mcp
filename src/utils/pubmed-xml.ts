@@ -11,7 +11,12 @@ function innerTag(xml: string, tag: string): string | undefined {
 }
 
 function stripTags(xml: string): string {
-  return decodeHtmlEntities(xml.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim());
+  return decodeHtmlEntities(
+    xml
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 /**
@@ -55,7 +60,9 @@ export function pmcRecordMatchesArticle(
     return ids.pmid === expected.pmid.trim();
   }
   if (expected.doi && ids.doi) {
-    const want = expected.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase();
+    const want = expected.doi
+      .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+      .toLowerCase();
     return ids.doi === want;
   }
   // No identifiers in the PMC record to verify — do not attach full text.
@@ -64,7 +71,9 @@ export function pmcRecordMatchesArticle(
 
 export function parsePubMedXML(xmlText: string): PubMedArticle[] {
   const articles: PubMedArticle[] = [];
-  const articleMatches = xmlText.match(/<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g);
+  const articleMatches = xmlText.match(
+    /<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g,
+  );
   if (!articleMatches) return articles;
 
   for (const articleXml of articleMatches) {

@@ -1,4 +1,7 @@
-import { DEFAULT_DRUG_COUNTRIES, SUPPORTED_DRUG_COUNTRIES } from "../constants.js";
+import {
+  DEFAULT_DRUG_COUNTRIES,
+  SUPPORTED_DRUG_COUNTRIES,
+} from "../constants.js";
 import { getCacheConfig } from "../cache/config.js";
 import { cachedCall } from "./cached.js";
 import { fanoutSearch } from "./fanout.js";
@@ -12,8 +15,7 @@ function normalizeCountries(countries?: string[]): string[] {
   }
   const selected = countries.map((country) => country.toUpperCase());
   const unsupported = selected.filter(
-    (code) =>
-      !(SUPPORTED_DRUG_COUNTRIES as readonly string[]).includes(code),
+    (code) => !(SUPPORTED_DRUG_COUNTRIES as readonly string[]).includes(code),
   );
   if (unsupported.length > 0) {
     throw new Error(

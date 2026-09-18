@@ -29,9 +29,7 @@ export function mapHealthCanadaProduct(
     country: "CA",
     productName: product.brand_name || "Unknown product",
     activeIngredients: ingredients,
-    status: product.class_name
-      ? `Class: ${product.class_name}`
-      : undefined,
+    status: product.class_name ? `Class: ${product.class_name}` : undefined,
     identifier: din ? { type: "DIN", value: din } : undefined,
     sponsor: product.company_name,
     dosageForm: product.descriptor,

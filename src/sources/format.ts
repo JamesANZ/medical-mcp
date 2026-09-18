@@ -109,6 +109,15 @@ export function formatSafetyEvents(
     byKind.set(event.kind, (byKind.get(event.kind) || 0) + 1);
   }
   text += `Adverse events: ${byKind.get("adverse_event") || 0}. Recalls: ${byKind.get("recall") || 0}. Shortages: ${byKind.get("shortage") || 0}.\n`;
+  if (
+    events.some(
+      (event) =>
+        event.kind === "adverse_event" &&
+        event.summary?.includes("FAERS reports named"),
+    )
+  ) {
+    text += `FAERS figures are report counts, not incidence, and do not prove causation.\n`;
+  }
   if (!byKind.get("shortage")) {
     text += `No shortage records were returned for this query.\n`;
   }

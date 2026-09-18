@@ -107,7 +107,10 @@ export function buildClinicalTrialsQuery(
     return { "query.term": essieAnd(query) };
   }
 
-  return { "query.cond": essiePhrase(query) };
+  // Multi-word queries go to query.term with AND. Stuffing the whole string
+  // into query.cond as a phrase misses intervention+condition searches
+  // (e.g. "semaglutide heart failure").
+  return { "query.term": essieAnd(query) };
 }
 
 export function dedupeBy<T>(

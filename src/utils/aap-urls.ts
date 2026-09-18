@@ -12,7 +12,9 @@ export function isAllowedAapUrl(url?: string): boolean {
   const host = hostnameOf(url);
   if (!host) return false;
   const allowed =
-    AAP_HOSTS.has(host) || host.endsWith(".aap.org") || host.endsWith(".aappublications.org");
+    AAP_HOSTS.has(host) ||
+    host.endsWith(".aap.org") ||
+    host.endsWith(".aappublications.org");
   if (!allowed) return false;
   return hasNonHomePath(url);
 }

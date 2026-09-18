@@ -1,4 +1,4 @@
-import { mapFaersEvent } from "../adapters/faers.js";
+import { mapFaersCount, mapFaersEvent } from "../adapters/faers.js";
 import { mapShortage } from "../adapters/shortages.js";
 import { formatSourceCatalog } from "../format.js";
 import {
@@ -69,10 +69,13 @@ describe("query builder", () => {
       "query.intr": "immunotherapy",
     });
     expect(buildClinicalTrialsQuery("motor neurone disease")).toEqual({
-      "query.cond": '"motor neurone disease"',
+      "query.term": "motor AND neurone AND disease",
     });
     expect(buildClinicalTrialsQuery("atorvastatin")).toEqual({
       "query.term": "atorvastatin",
+    });
+    expect(buildClinicalTrialsQuery("semaglutide heart failure")).toEqual({
+      "query.term": "semaglutide AND heart AND failure",
     });
   });
 });
@@ -100,6 +103,13 @@ describe("mappers", () => {
     expect(event.summary).toContain("ATORVASTATIN");
     expect(event.summary).toMatch(/Drugs: ATORVASTATIN,/);
     expect(event.id).toBeUndefined();
+  });
+
+  test("maps FAERS reaction counts as non-causal tallies", () => {
+    const event = mapFaersCount({ term: "Nausea", count: 9513 }, "semaglutide");
+    expect(event?.title).toBe("Nausea");
+    expect(event?.summary).toContain("9,513 FAERS reports");
+    expect(event?.summary).toContain("do not prove causation");
   });
 
   test("includes shortage availability and related_info", () => {
