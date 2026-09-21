@@ -228,10 +228,13 @@ export function classifyEvidence(
   };
 }
 
+export const EVIDENCE_TAG_DISCLAIMER =
+  "Evidence tags are automatic labels from the title and abstract, not independently checked grades.";
+
 /**
  * Format evidence tag as a compact string for display
  */
 export function formatEvidenceTag(tag: EvidenceTag): string {
   if (tag.studyType === "Unknown") return "";
-  return `[${tag.studyType} • Grade ${tag.grade}]`;
+  return `[${tag.studyType} • tool grade ${tag.grade}]`;
 }

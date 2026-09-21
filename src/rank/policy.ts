@@ -29,6 +29,8 @@ export const THRESHOLDS = {
   keepUsable: 0.55,
   humanClinicalCap: 0.4,
   observationalDesignIndex: 3,
+  /** Randomized trial or systematic review — never hard-drop. */
+  protectedDesignIndex: 4,
   designMax: 5,
   addressesWeight: 0.6,
   designWeight: 0.4,
@@ -146,7 +148,23 @@ export function applyPolicy(
     scores.off_population_or_setting > THRESHOLDS.dropOffSetting &&
     scores.addresses < THRESHOLDS.dropOffSettingUnlessAddresses;
 
+  const protectedDesign = designIndex >= THRESHOLDS.protectedDesignIndex;
+
   if (dropForAddress || dropForSetting) {
+    if (protectedDesign) {
+      flags.push("protected_design");
+      flags.push("low_citation");
+      return {
+        keep: true,
+        demote: true,
+        addresses: scores.addresses,
+        usable_as_citation: scores.usable_as_citation,
+        evidence_or_authority: evidenceOrAuthority,
+        flags,
+        model: JEV_MODEL,
+        sortScore,
+      };
+    }
     return {
       keep: false,
       demote: false,

@@ -92,10 +92,19 @@ export type RankHitsResult<T extends RankHit = RankHit> = {
   question: string;
 };
 
+/** Compact row for papers that missed the top cut. */
+export type OmittedHitSummary = {
+  title: string;
+  pmid?: string;
+  url?: string;
+  reason: "off_question" | "over_cap";
+};
+
 /**
  * Extra lines on a ranked MCP response (omit count + disclaimer).
  */
 export type RankDisplayMeta = {
   omitted: number;
   degraded?: boolean;
+  omittedHits?: OmittedHitSummary[];
 };

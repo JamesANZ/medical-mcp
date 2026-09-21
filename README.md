@@ -18,14 +18,14 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that b
 - ⚡ **Easy Setup** – One-click install in [Cursor](https://cursor.sh) or simple manual setup
 - 🔬 **Comprehensive** – Drug info, health stats, medical literature, clinical guidelines, pediatric sources
 - 🛡️ **Resilient** – Circuit breakers, retry with backoff, rate limiting, and automatic fallbacks
-- 📊 **Evidence-Graded** – Results tagged with study type and evidence level (Meta-Analysis → Case Report)
+- 📊 **Evidence-Graded** – Results tagged with study type and evidence level (Meta-Analysis → Case Report). Tags are automatic labels from the title and abstract, not independently checked grades.
 - 🏥 **Health Monitoring** – Built-in health check tool to diagnose source availability
 
 ## What's New in v2.0
 
 - **Resilience Layer** – Circuit breakers per source, retry with exponential backoff + jitter, per-source token bucket rate limiters
 - **Monid web search** – Scholar, AAP, and PMC HTML go through Monid TinyFish (Tavily-style search/fetch). Semantic Scholar is the no-key fallback
-- **Evidence Grading** – PubMed and multi-database results tagged with study type (Systematic Review, RCT, Cohort, Case Report, etc.) and evidence grade (I–V)
+- **Evidence Grading** – PubMed and multi-database results tagged with study type (Systematic Review, RCT, Cohort, Case Report, etc.) and evidence grade (I–V). These tags are automatic labels from the title and abstract, not independently checked grades.
 - **Response Validation** – Zod schemas validate all upstream API responses, logging warnings on schema drift without breaking
 - **NCBI API Key Support** – Optional `NCBI_API_KEY` env var boosts PubMed from 3 req/sec to 10 req/sec
 - **Health Check Tool** – `health-check` pings all upstream sources and reports latency, circuit breaker states, rate limiter status, and cache health
@@ -146,11 +146,11 @@ Results now include evidence tags:
 
 ```
 1. Efficacy of COVID-19 Treatments: A Meta-Analysis
-   Evidence: [Systematic Review / Meta-Analysis • Grade I]
+   Evidence: [Systematic Review / Meta-Analysis • tool grade I]
    Authors: Smith J, Jones K...
 
 2. Randomized Trial of Remdesivir in Adults
-   Evidence: [Randomized Controlled Trial • Grade II]
+   Evidence: [Randomized Controlled Trial • tool grade II]
    Authors: Chen L, Wang M...
 ```
 
@@ -198,6 +198,8 @@ PubMed and multi-database results are automatically classified:
 | III   | Cohort / Case-Control Study       | Prospective, retrospective, population-based  |
 | IV    | Case Report / Case Series         | Clinical case presentations                   |
 | V     | Expert Opinion / Editorial        | Commentaries, perspectives, narrative reviews |
+
+These tags are automatic labels from the title and abstract, not independently checked grades.
 
 ### Automatic Fallback
 

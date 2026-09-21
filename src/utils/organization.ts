@@ -225,8 +225,8 @@ export function extractOrganizationName(
 }
 
 /**
- * Short acronyms like "WHO" must not match common English "who" in abstracts
- * (e.g. "clinicians who deliver most of the primary care").
+ * Match a requested organisation against title, journal, or the extracted
+ * organisation name. Abstracts are ignored so a passing mention is not enough.
  */
 export function organizationFilterMatches(
   organizationFilter: string,
@@ -253,17 +253,11 @@ export function organizationFilterMatches(
   const org = fields.organization || "";
   const title = fields.title || "";
   const journal = fields.journal || "";
-  const abstract = fields.abstract || "";
 
   if (filterLower === "who") {
     const whoField = (text: string) =>
       /\bWHO\b/.test(text) || /world health organization/i.test(text);
-    return (
-      whoField(org) ||
-      whoField(title) ||
-      whoField(journal) ||
-      whoField(abstract)
-    );
+    return whoField(org) || whoField(title) || whoField(journal);
   }
 
   if (isShort) {
@@ -274,8 +268,7 @@ export function organizationFilterMatches(
       word.test(journal) ||
       includesAlias(org, aliases) ||
       includesAlias(title, aliases) ||
-      includesAlias(journal, aliases) ||
-      includesAlias(abstract, aliases)
+      includesAlias(journal, aliases)
     );
   }
 
@@ -283,8 +276,7 @@ export function organizationFilterMatches(
   return (
     org.toLowerCase().includes(needle) ||
     title.toLowerCase().includes(needle) ||
-    journal.toLowerCase().includes(needle) ||
-    abstract.toLowerCase().includes(needle)
+    journal.toLowerCase().includes(needle)
   );
 }
 

@@ -26,7 +26,7 @@ export const JEV_QUESTIONS = {
   addresses_question: {
     type: "noul" as const,
     instructions:
-      "The document's abstract reports findings or recommendations that directly address `question`. Keyword overlap alone is not enough. Mentions of the drug or disease in a different clinical setting (anesthesia, adverse-event mining, perioperative hold) count as no unless the abstract answers the question.",
+      "The document's abstract reports findings or recommendations that directly address `question`. Keyword overlap alone is not enough. Mentions of the drug or disease in a different clinical setting (anesthesia, adverse-event mining, perioperative hold) count as no unless the abstract answers the question. A primary randomized trial of the named intervention and outcome does address the question even if the abstract never uses a trial acronym (for example SELECT).",
   },
   usable_as_citation: {
     type: "noul" as const,

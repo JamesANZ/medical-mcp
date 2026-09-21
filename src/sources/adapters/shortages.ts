@@ -14,9 +14,25 @@ type Shortage = {
   update_date?: string;
   availability?: string;
   related_info?: string;
+  related_info_link?: string;
   company_name?: string;
   presentation?: string;
 };
+
+function httpUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  return /^https?:\/\//i.test(value) ? value : undefined;
+}
+
+function shortageRecordUrl(row: Shortage, generic?: string): string {
+  return (
+    httpUrl(row.related_info_link) ||
+    httpUrl(row.related_info) ||
+    (generic
+      ? `https://api.fda.gov/drug/shortages.json?search=generic_name:"${encodeURIComponent(generic)}"&limit=1`
+      : "https://api.fda.gov/drug/shortages.json")
+  );
+}
 
 export function mapShortage(row: Shortage): SafetyEvent {
   const generic = Array.isArray(row.generic_name)
@@ -31,14 +47,16 @@ export function mapShortage(row: Shortage): SafetyEvent {
       row.status,
       row.availability,
       row.shortage_reason,
-      row.related_info,
+      row.related_info && !httpUrl(row.related_info)
+        ? row.related_info
+        : undefined,
       row.company_name,
       row.presentation,
     ]
       .filter(Boolean)
       .join(" — "),
     date: row.update_date,
-    url: "https://open.fda.gov/apis/drug/drugshortages/",
+    url: shortageRecordUrl(row, generic),
   };
 }
 

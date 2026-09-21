@@ -13,7 +13,19 @@ type Recall = {
   recalling_firm?: string;
   report_date?: string;
   status?: string;
+  recall_number?: string;
+  event_id?: string;
 };
+
+function recallRecordUrl(row: Recall): string {
+  if (row.recall_number) {
+    return `https://api.fda.gov/drug/enforcement.json?search=recall_number:"${encodeURIComponent(row.recall_number)}"&limit=1`;
+  }
+  if (row.event_id) {
+    return `https://api.fda.gov/drug/enforcement.json?search=event_id:"${encodeURIComponent(row.event_id)}"&limit=1`;
+  }
+  return "https://api.fda.gov/drug/enforcement.json";
+}
 
 export function mapRecall(row: Recall): SafetyEvent {
   return {
@@ -25,7 +37,8 @@ export function mapRecall(row: Recall): SafetyEvent {
       .filter(Boolean)
       .join(" — "),
     date: row.report_date,
-    url: "https://open.fda.gov/apis/drug/enforcement/",
+    id: row.recall_number || row.event_id,
+    url: recallRecordUrl(row),
   };
 }
 

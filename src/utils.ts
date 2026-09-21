@@ -26,9 +26,11 @@ import {
 } from "./constants.js";
 import {
   classifyAapResult,
+  classifyAapDocumentTitle,
   isAllowedAapUrl,
   normalizeAapUrl,
 } from "./utils/aap-urls.js";
+import { compareScoredGuidelines } from "./utils/guideline-rank.js";
 import {
   extractOrganizationName,
   organizationFilterMatches,
@@ -50,6 +52,8 @@ import {
   mapWhoDataValue,
   sortWhoValues,
   latestWhoSnapshot,
+  whoIndicatorUrl,
+  whoCountryUrl,
 } from "./utils/who-gho.js";
 import { cacheManager } from "./cache/manager.js";
 import { getCacheConfig } from "./cache/config.js";
@@ -64,6 +68,7 @@ import { TINYFISH_API_KEY } from "./constants.js";
 import {
   classifyEvidence,
   formatEvidenceTag,
+  EVIDENCE_TAG_DISCLAIMER,
 } from "./utils/evidence-grading.js";
 import { appendRankFooter, formatRankLine } from "./rank/display.js";
 import type { RankDisplayMeta } from "./rank/types.js";
@@ -72,6 +77,7 @@ import {
   pediatricDrugsEmptyMessage,
   extractPediatricSentence,
 } from "./utils/pediatric-label.js";
+import { compareIngredientPreference } from "./utils/drug-names.js";
 import {
   resilientCall,
   CircuitOpenError,
@@ -537,9 +543,15 @@ function formatArticleItem(article: any, index: number): string {
 }
 
 export function createErrorResponse(operation: string, error: any) {
-  return createMCPResponse(
-    `Error ${operation}: ${error.message || "Unknown error"}`,
-  );
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Error ${operation}: ${error.message || "Unknown error"}`,
+      },
+    ],
+    isError: true,
+  };
 }
 
 export function formatDrugSearchResults(
@@ -600,18 +612,18 @@ function categorizeIndicator(indicatorName: string): {
 } {
   const name = indicatorName.toLowerCase();
   if (name.includes("life expectancy")) {
-    if (name.includes("healthy")) {
-      return {
-        category: "Life Expectancy - Healthy",
-        explanation:
-          "Average number of years a person can expect to live in full health (without disability or illness)",
-      };
-    }
     if (name.includes("disability") || name.includes("hale")) {
       return {
         category: "Life Expectancy - Disability-Adjusted (HALE)",
         explanation:
           "Healthy Adjusted Life Expectancy - years lived in full health adjusted for time spent in poor health or with disability",
+      };
+    }
+    if (name.includes("healthy")) {
+      return {
+        category: "Life Expectancy - Healthy",
+        explanation:
+          "Average number of years a person can expect to live in full health (without disability or illness)",
       };
     }
     if (name.includes("at birth")) {
@@ -693,7 +705,6 @@ export function formatHealthIndicators(
     );
   }
 
-  // Group indicators by category
   const categorized = new Map<
     string,
     { indicators: typeof indicators; explanation?: string }
@@ -706,17 +717,10 @@ export function formatHealthIndicators(
     categorized.get(category)!.indicators.push(ind);
   });
 
-  let result = `**Health Statistics: ${indicator}**\n\n`;
-  if (country) {
-    result += `Country Filter: ${country}\n`;
-  }
-  result += `Found ${indicators.length} data point(s) across ${categorized.size} category/categories\n\n`;
-
-  // Sort categories by priority (Life Expectancy first, then others)
   const categoryOrder = [
     "Life Expectancy - At Birth",
     "Life Expectancy - Healthy",
-    "Life Expectancy - Disability-Adjusted",
+    "Life Expectancy - Disability-Adjusted (HALE)",
     "Life Expectancy",
     "Mortality - Infant",
     "Mortality - Maternal",
@@ -727,20 +731,15 @@ export function formatHealthIndicators(
     "Rate",
     "General",
   ];
+  const orderedCategories = [
+    ...categoryOrder.filter((category) => categorized.has(category)),
+    ...[...categorized.keys()].filter(
+      (category) => !categoryOrder.includes(category),
+    ),
+  ];
 
-  let remaining = limit;
-  let itemIndex = 1;
-  for (const category of categoryOrder) {
-    if (!categorized.has(category) || remaining <= 0) continue;
-
-    const categoryData = categorized.get(category)!;
-    const categoryIndicators = categoryData.indicators;
-    result += `## ${category}\n\n`;
-    if (categoryData.explanation) {
-      result += `*${categoryData.explanation}*\n\n`;
-    }
-
-    const sorted = [...categoryIndicators].sort((a, b) => {
+  const sortRows = (rows: typeof indicators) =>
+    [...rows].sort((a, b) => {
       const yearA = parseInt(a.TimeDim, 10) || 0;
       const yearB = parseInt(b.TimeDim, 10) || 0;
       if (yearB !== yearA) return yearB - yearA;
@@ -756,10 +755,47 @@ export function formatHealthIndicators(
       if (sexCmp !== 0) return sexCmp;
       return (b.NumericValue || 0) - (a.NumericValue || 0);
     });
-    const sliced = sorted.slice(0, remaining);
-    remaining -= sliced.length;
 
-    sliced.forEach((ind) => {
+  type Displayed = {
+    category: string;
+    explanation?: string;
+    rows: typeof indicators;
+  };
+  const displayed: Displayed[] = [];
+  let remaining = limit;
+  for (const category of orderedCategories) {
+    if (remaining <= 0) break;
+    const categoryData = categorized.get(category)!;
+    const sliced = sortRows(categoryData.indicators).slice(0, remaining);
+    remaining -= sliced.length;
+    displayed.push({
+      category,
+      explanation: categoryData.explanation,
+      rows: sliced,
+    });
+  }
+
+  const shown = displayed.reduce((n, block) => n + block.rows.length, 0);
+  const shownCats = displayed.length;
+  const categoryWord = categorized.size === 1 ? "category" : "categories";
+
+  let result = `**Health Statistics: ${indicator}**\n\n`;
+  if (country) {
+    result += `Country Filter: ${country}\n`;
+  }
+  if (shown < indicators.length) {
+    result += `Showing ${shown} of ${indicators.length} data point(s) across ${shownCats} of ${categorized.size} ${categoryWord}\n\n`;
+  } else {
+    result += `Found ${indicators.length} data point(s) across ${categorized.size} ${categoryWord}\n\n`;
+  }
+
+  let itemIndex = 1;
+  for (const block of displayed) {
+    result += `## ${block.category}\n\n`;
+    if (block.explanation) {
+      result += `*${block.explanation}*\n\n`;
+    }
+    block.rows.forEach((ind) => {
       result += `${itemIndex}. **${ind.IndicatorName || indicator}**\n`;
       result += `   Country: ${ind.SpatialDim}\n`;
       result += `   Value: **${ind.Value}**\n`;
@@ -776,7 +812,14 @@ export function formatHealthIndicators(
         result += `   Range: ${ind.Low} - ${ind.High}\n`;
       }
       result += `   Year: ${ind.TimeDim}\n`;
-      result += `   Indicator Code: ${ind.IndicatorCode}\n\n`;
+      result += `   Indicator Code: ${ind.IndicatorCode}\n`;
+      if (ind.IndicatorCode) {
+        result += `   Source: ${whoIndicatorUrl(ind.IndicatorCode)}\n`;
+      }
+      if (country) {
+        result += `   Country page: ${whoCountryUrl(country)}\n`;
+      }
+      result += "\n";
       itemIndex++;
     });
   }
@@ -844,6 +887,8 @@ export function formatPubMedArticles(
 
   if (rankMeta) {
     result = appendRankFooter(result, rankMeta);
+  } else {
+    result += `\n${EVIDENCE_TAG_DISCLAIMER}\n`;
   }
   return createMCPResponse(appendCacheInfo(result, metadata));
 }
@@ -1276,15 +1321,20 @@ export function formatAAPGuidelines(
 
   // Separate by source
   const brightFutures = guidelines.filter((g) => g.source === "bright-futures");
-  const aapPolicy = guidelines.filter((g) => g.source === "aap-policy");
+  const byCategory = new Map<string, number>();
+  for (const guideline of guidelines) {
+    if (guideline.source === "bright-futures") continue;
+    const category = guideline.category || "AAP Publication";
+    byCategory.set(category, (byCategory.get(category) || 0) + 1);
+  }
 
   let result = `**AAP Guidelines Search: "${query}"**\n\n`;
   result += `Found ${guidelines.length} guideline(s) total\n`;
   if (brightFutures.length > 0) {
     result += `- ${brightFutures.length} from Bright Futures\n`;
   }
-  if (aapPolicy.length > 0) {
-    result += `- ${aapPolicy.length} from AAP Policy Statements\n`;
+  for (const [category, count] of byCategory) {
+    result += `- ${count} ${category}\n`;
   }
   result += "\n";
 
@@ -1862,7 +1912,6 @@ export async function searchClinicalGuidelines(
           !organizationFilterMatches(organization, {
             organization: org,
             title: article.title,
-            abstract: article.abstract,
             journal: article.journal,
           })
         ) {
@@ -1950,7 +1999,12 @@ export async function searchClinicalGuidelines(
 
     return dedupeByTitleOrDoi(
       scoredGuidelines
-        .sort((a, b) => b.score - a.score)
+        .sort((a, b) =>
+          compareScoredGuidelines(
+            { score: a.score, year: a.guideline.year },
+            { score: b.score, year: b.guideline.year },
+          ),
+        )
         .map((item) => item.guideline),
     ).slice(0, 15);
   } catch (error) {
@@ -2021,23 +2075,23 @@ export async function searchAAPPolicyStatements(
     "AAPPolicy",
     `Searching AAP policy statements via PubMed and Monid for: ${query}`,
   );
-  const pubmedQuery = `(${expandPediatricQuery(query)}) AND ("American Academy of Pediatrics"[Corporate Author] OR ("Pediatrics"[Journal] AND ("policy statement"[ti] OR "clinical report"[ti] OR "clinical practice guideline"[ti] OR "technical report"[ti])))`;
+  const pubmedQuery = `(${expandPediatricQuery(query)}) AND ("Pediatrics"[Journal] OR "American Academy of Pediatrics"[Corporate Author]) AND ("policy statement"[ti] OR "clinical report"[ti] OR "clinical practice guideline"[ti] OR "technical report"[ti] OR "practice guideline"[pt] OR "guideline"[pt] OR "technical report"[pt])`;
   const pubmed = await searchPubMed(pubmedQuery, 10);
-  const fromPubmed: PediatricGuideline[] = pubmed.map((article) => {
-    const classified = classifyAapResult(
-      `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
-      article.title,
-    );
-    return {
-      title: article.title,
-      organization: "American Academy of Pediatrics",
-      year: article.publication_date.slice(0, 4),
-      url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
-      description: (article.abstract || "").substring(0, 300),
-      category: classified.category,
-      source: "aap-policy" as const,
-    };
-  });
+  const fromPubmed: PediatricGuideline[] = pubmed
+    .map((article) => {
+      const classified = classifyAapDocumentTitle(article.title);
+      if (!classified) return null;
+      return {
+        title: article.title,
+        organization: "American Academy of Pediatrics",
+        year: article.publication_date.slice(0, 4),
+        url: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+        description: (article.abstract || "").substring(0, 300),
+        category: classified.category,
+        source: classified.source,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item != null);
 
   const web = (
     await searchTinyFish(query, {
@@ -2113,7 +2167,23 @@ export async function searchPediatricDrugs(
   try {
     const fetchLimit = Math.min(Math.max(limit * 20, 40), 100);
     const drugs = await searchDrugs(query, fetchLimit);
-    const pediatricDrugs = drugs.filter(fdaLabelHasPediatricUse);
+    const pediatricDrugs = drugs
+      .filter(fdaLabelHasPediatricUse)
+      .sort((a, b) =>
+        compareIngredientPreference(
+          query,
+          {
+            productName: a.openfda?.brand_name?.[0],
+            genericName: a.openfda?.generic_name?.[0],
+            activeIngredients: a.openfda?.substance_name,
+          },
+          {
+            productName: b.openfda?.brand_name?.[0],
+            genericName: b.openfda?.generic_name?.[0],
+            activeIngredients: b.openfda?.substance_name,
+          },
+        ),
+      );
     return {
       drugs: pediatricDrugs.slice(0, limit),
       labelsRetrieved: drugs.length,

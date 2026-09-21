@@ -48,8 +48,8 @@ export function extractPediatricSentence(text: string): string | undefined {
   for (const sentence of sentences) {
     if (!term.test(sentence)) continue;
     if (!/^[A-Z("]/.test(sentence)) continue;
-    if (sentence.length <= 280) return sentence;
-    return `${sentence.slice(0, 277).trimEnd()}...`;
+    if (sentence.length <= 400) return sentence;
+    return `${sentence.slice(0, 397).trimEnd()}...`;
   }
   return undefined;
 }

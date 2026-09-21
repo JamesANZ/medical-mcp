@@ -19,6 +19,36 @@ export function isAllowedAapUrl(url?: string): boolean {
   return hasNonHomePath(url);
 }
 
+export function isAapGuidelineTitle(title: string): boolean {
+  const t = title.toLowerCase();
+  return (
+    t.includes("policy statement") ||
+    t.includes("clinical report") ||
+    t.includes("clinical practice guideline") ||
+    t.includes("technical report")
+  );
+}
+
+export function classifyAapDocumentTitle(title: string): {
+  source: "aap-policy";
+  category: string;
+} | null {
+  const t = title.toLowerCase();
+  if (t.includes("policy statement")) {
+    return { source: "aap-policy", category: "Policy Statement" };
+  }
+  if (t.includes("clinical practice guideline")) {
+    return { source: "aap-policy", category: "Clinical Practice Guideline" };
+  }
+  if (t.includes("clinical report")) {
+    return { source: "aap-policy", category: "Clinical Report" };
+  }
+  if (t.includes("technical report")) {
+    return { source: "aap-policy", category: "Technical Report" };
+  }
+  return null;
+}
+
 export function classifyAapResult(
   url: string,
   title: string,
@@ -31,14 +61,10 @@ export function classifyAapResult(
   if (host.includes("brightfutures") || haystack.includes("bright futures")) {
     return { source: "bright-futures", category: "Preventive Care" };
   }
-  if (haystack.includes("policy statement") || haystack.includes("/policy/")) {
+  const fromTitle = classifyAapDocumentTitle(title);
+  if (fromTitle) return fromTitle;
+  if (haystack.includes("/policy/")) {
     return { source: "aap-policy", category: "Policy Statement" };
-  }
-  if (
-    haystack.includes("clinical practice guideline") ||
-    haystack.includes("clinical report")
-  ) {
-    return { source: "aap-policy", category: "Clinical Report" };
   }
   if (host === "publications.aap.org") {
     return { source: "aap-policy", category: "AAP Publication" };

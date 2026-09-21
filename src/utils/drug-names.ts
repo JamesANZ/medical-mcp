@@ -98,3 +98,54 @@ export function textMentionsDrug(text: string, drugTerms: string[]): boolean {
     ),
   );
 }
+
+export type IngredientFields = {
+  productName?: string;
+  genericName?: string;
+  activeIngredients?: string[];
+};
+
+export function queryLooksLikeCombination(query: string): boolean {
+  return /(?:\s+and\s+|\s*\/\s*|\s+&\s*|\s*,\s*)/i.test(query.trim());
+}
+
+function looksLikeCombinationName(value: string): boolean {
+  return /\s+(?:and|&)\s+|\/|,/.test(value.toLowerCase());
+}
+
+/** Lower is better. Combination products sort last unless the query is a combo. */
+export function ingredientPreferenceScore(
+  query: string,
+  fields: IngredientFields,
+): number {
+  if (queryLooksLikeCombination(query)) return 0;
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const name = (fields.productName || "").toLowerCase();
+  const generic = (fields.genericName || "").toLowerCase();
+  const ingredients = (fields.activeIngredients || []).map((item) =>
+    item.toLowerCase(),
+  );
+  const combo =
+    looksLikeCombinationName(name) ||
+    looksLikeCombinationName(generic) ||
+    ingredients.length > 1;
+
+  if (name === q || generic === q) return 0;
+  const soleIngredient =
+    ingredients.length === 1 &&
+    (ingredients[0] === q || ingredients[0].startsWith(`${q} `));
+  if (!combo && (soleIngredient || name.includes(q) || generic.includes(q))) {
+    return 1;
+  }
+  if (combo) return 3;
+  return 2;
+}
+
+export function compareIngredientPreference(
+  query: string,
+  a: IngredientFields,
+  b: IngredientFields,
+): number {
+  return ingredientPreferenceScore(query, a) - ingredientPreferenceScore(query, b);
+}

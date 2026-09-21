@@ -145,6 +145,29 @@ describe("applyPolicy", () => {
     expect(decision.evidence_or_authority).toBeCloseTo(0.6);
   });
 
+  test("keeps a randomized trial with a weak relevance score instead of dropping it", () => {
+    const weakRct: JevScores = {
+      addresses: 0.3,
+      usable_as_citation: 0.4,
+      off_population_or_setting: 0.2,
+      study_design: 4,
+      human_clinical: 0.99,
+    };
+    const decision = applyPolicy(weakRct, rctEvidence);
+    expect(decision.keep).toBe(true);
+    expect(decision.demote).toBe(true);
+    expect(decision.flags).toContain("protected_design");
+  });
+
+  test("still drops an off-topic editorial", () => {
+    const decision = applyPolicy(anesthesiaScores, {
+      studyType: "Expert Opinion / Editorial",
+      grade: "V",
+      sortPriority: 6,
+    });
+    expect(decision.keep).toBe(false);
+  });
+
   test("missing TypeSafe key path keeps original order and drops nothing", () => {
     const hits = [
       { title: "Anesthesia consensus on SGLT2" },

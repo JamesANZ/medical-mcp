@@ -150,3 +150,11 @@ export function latestWhoSnapshot<
   }
   return out;
 }
+
+export function whoIndicatorUrl(code: string): string {
+  return `https://www.who.int/data/gho/data/indicators/indicator-details/GHO/${encodeURIComponent(code)}`;
+}
+
+export function whoCountryUrl(country: string): string {
+  return `https://data.who.int/countries/${encodeURIComponent(country)}`;
+}

@@ -7,6 +7,7 @@ import {
   safeValidate,
 } from "../../validation/schemas.js";
 import { timedHealthCheck } from "../http.js";
+import { compareIngredientPreference } from "../../utils/drug-names.js";
 import type { RegulatoryProduct, SearchOpts, SourceAdapter } from "../types.js";
 
 type FdaResult = {
@@ -91,12 +92,26 @@ export function mapFdaApplication(app: FdaApplication): RegulatoryProduct[] {
   return rows;
 }
 
+function productIngredientFields(product: RegulatoryProduct) {
+  return {
+    productName: product.productName,
+    genericName: product.productName,
+    activeIngredients: product.activeIngredients,
+  };
+}
+
 function rankFdaProducts(
   products: RegulatoryProduct[],
   query: string,
 ): RegulatoryProduct[] {
   const q = query.trim().toLowerCase();
   return [...products].sort((a, b) => {
+    const ingredientCmp = compareIngredientPreference(
+      query,
+      productIngredientFields(a),
+      productIngredientFields(b),
+    );
+    if (ingredientCmp !== 0) return ingredientCmp;
     const exactA = a.productName.toLowerCase() === q ? 0 : 1;
     const exactB = b.productName.toLowerCase() === q ? 0 : 1;
     if (exactA !== exactB) return exactA - exactB;

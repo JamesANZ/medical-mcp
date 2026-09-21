@@ -7,7 +7,7 @@ import {
   classifyEvidence,
   formatEvidenceTag,
 } from "../utils/evidence-grading.js";
-import { appendRankFooter, formatRankLine } from "./display.js";
+import { appendRankFooter, formatRankLine, summarizeOmittedHits } from "./display.js";
 import type { RankHitsResult, RankHit } from "./types.js";
 
 function createMCPResponse(text: string) {
@@ -71,6 +71,7 @@ export function formatRankedSearchHits(
   text = appendRankFooter(text, {
     omitted: ranked.omitted.length,
     degraded: ranked.degraded,
+    omittedHits: summarizeOmittedHits(ranked.omitted),
   });
   return createMCPResponse(text);
 }

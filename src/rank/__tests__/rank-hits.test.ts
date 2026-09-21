@@ -3,6 +3,7 @@
  */
 
 import { rankHits } from "../rank-hits.js";
+import { formatRankedSearchHits } from "../format.js";
 import type { JevScores } from "../types.js";
 import type { JudgeResult } from "../jev-client.js";
 
@@ -94,5 +95,85 @@ describe("rankHits", () => {
     );
     const ae = ranked.kept.find((hit) => /VigiBase/.test(hit.title));
     expect(ae?.rank.flags).toContain("low_citation");
+  });
+
+  test("six on-topic papers with maxKeep 3 keep three and list the rest as over_cap", async () => {
+    process.env.TYPESAFE_API_KEY = "test-key";
+    const onTopic: JevScores = {
+      addresses: 0.9,
+      usable_as_citation: 0.85,
+      off_population_or_setting: 0.1,
+      study_design: 3,
+      human_clinical: 0.95,
+    };
+    const hits = Array.from({ length: 6 }, (_, i) => ({
+      title: `On-topic paper ${i + 1}`,
+      pmid: String(1000 + i),
+    }));
+    const ranked = await rankHits({
+      question: "Do SGLT2 inhibitors reduce hospitalization in HFrEF?",
+      hits,
+      maxKeep: 3,
+      judge: async () => ok(onTopic),
+    });
+    expect(ranked.kept).toHaveLength(3);
+    expect(ranked.omitted).toHaveLength(3);
+    expect(ranked.omitted.every((hit) => hit.rank.flags.includes("over_cap"))).toBe(
+      true,
+    );
+  });
+
+  test("original SELECT trial still appears when it misses the top cut", async () => {
+    process.env.TYPESAFE_API_KEY = "test-key";
+    const scoresByPmid: Record<string, JevScores> = {
+      "38740993": {
+        addresses: 0.95,
+        usable_as_citation: 0.9,
+        off_population_or_setting: 0.05,
+        study_design: 4,
+        human_clinical: 0.99,
+      },
+      "37952131": {
+        addresses: 0.3,
+        usable_as_citation: 0.4,
+        off_population_or_setting: 0.2,
+        study_design: 4,
+        human_clinical: 0.99,
+      },
+    };
+    const ranked = await rankHits({
+      question:
+        "What did the original SELECT randomized trial find about cardiovascular outcomes of semaglutide in adults with obesity without diabetes?",
+      hits: [
+        {
+          title:
+            "Continued Treatment With Tirzepatide for Maintenance of Weight Reduction",
+          pmid: "38740993",
+          abstract: "A secondary analysis of weight loss.",
+        },
+        {
+          title:
+            "Semaglutide and Cardiovascular Outcomes in Patients with Overweight or Obesity",
+          pmid: "37952131",
+          abstract:
+            "A randomized, double-blind trial of once-weekly semaglutide 2.4 mg.",
+        },
+      ],
+      maxKeep: 1,
+      judge: async (state) => {
+        const pmid = state.title.includes("Semaglutide and Cardiovascular")
+          ? "37952131"
+          : "38740993";
+        return ok(scoresByPmid[pmid]);
+      },
+    });
+    expect(ranked.kept).toHaveLength(1);
+    expect(ranked.kept[0].pmid).toBe("38740993");
+    expect(ranked.omitted.some((hit) => hit.pmid === "37952131")).toBe(true);
+
+    const formatted = formatRankedSearchHits(ranked, ranked.question);
+    const text = formatted.content[0].text;
+    expect(text).toContain("Also retrieved");
+    expect(text).toContain("37952131");
   });
 });

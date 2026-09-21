@@ -7,7 +7,8 @@ import {
   organizationFilterMatches,
   extractOrganizationName,
 } from "../organization.js";
-import { isAllowedAapUrl, classifyAapResult } from "../aap-urls.js";
+import { isAllowedAapUrl, classifyAapResult, isAapGuidelineTitle, classifyAapDocumentTitle } from "../aap-urls.js";
+import { compareScoredGuidelines } from "../guideline-rank.js";
 import {
   decodeHtmlEntities,
   isValidPmid,
@@ -19,7 +20,7 @@ import {
   sortWhoValues,
   latestWhoSnapshot,
 } from "../who-gho.js";
-import { classifyEvidence } from "../evidence-grading.js";
+import { classifyEvidence, formatEvidenceTag } from "../evidence-grading.js";
 
 const TIGHTEN_XML = `
 <PubmedArticle>
@@ -258,6 +259,41 @@ describe("AAP URL allowlist", () => {
     );
     expect(bright.source).toBe("bright-futures");
   });
+
+  test("does not treat an observational study title as an AAP policy", () => {
+    const title =
+      "Clinical and Demographic Factors Associated With Urinary Tract Infection in Young Febrile Infants";
+    expect(isAapGuidelineTitle(title)).toBe(false);
+    expect(classifyAapDocumentTitle(title)).toBeNull();
+    const classified = classifyAapResult(
+      "https://pubmed.ncbi.nlm.nih.gov/16140703/",
+      title,
+    );
+    expect(classified.category).not.toBe("Policy Statement");
+  });
+});
+
+describe("clinical guideline recency", () => {
+  test("puts a newer guideline above an older synopsis with the same score", () => {
+    const older = { score: 4, year: "2017" };
+    const newer = { score: 4, year: "2025" };
+    expect(compareScoredGuidelines(older, newer, 2026)).toBeGreaterThan(0);
+    expect(compareScoredGuidelines(newer, older, 2026)).toBeLessThan(0);
+  });
+});
+
+describe("organization filter ignores abstract-only mentions", () => {
+  test("does not credit AHA from a passing abstract mention", () => {
+    expect(
+      organizationFilterMatches("American Heart Association", {
+        organization: "American Academy of Pediatrics",
+        title: "Clinical Practice Guideline for Screening and Management of High Blood Pressure in Children and Adolescents",
+        journal: "Pediatrics",
+        abstract:
+          "This pediatric guideline cites the American Heart Association adult blood pressure thresholds.",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("helpers", () => {
@@ -376,5 +412,15 @@ describe("helpers", () => {
       studyType: "Narrative Review",
       grade: "V",
     });
+  });
+
+  test("labels evidence grades as the tool's guess", () => {
+    expect(
+      formatEvidenceTag({
+        studyType: "Randomized Controlled Trial",
+        grade: "II",
+        sortPriority: 2,
+      }),
+    ).toBe("[Randomized Controlled Trial • tool grade II]");
   });
 });

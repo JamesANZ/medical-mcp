@@ -1,5 +1,6 @@
 import { mapFaersCount, mapFaersEvent } from "../adapters/faers.js";
 import { mapShortage } from "../adapters/shortages.js";
+import { mapRecall } from "../adapters/recalls.js";
 import { formatSourceCatalog } from "../format.js";
 import {
   dedupeBy,
@@ -167,6 +168,30 @@ describe("mappers", () => {
     expect(event.summary).toBe(
       "Currently in Shortage — Limited Availability — Increased demand — Estimated recovery late 2026",
     );
+    expect(event.url).toContain("api.fda.gov/drug/shortages.json");
+    expect(event.url).not.toContain("open.fda.gov/apis");
+  });
+
+  test("links a shortage related_info URL when FDA supplies one", () => {
+    const event = mapShortage({
+      proprietary_name: "semaglutide",
+      generic_name: "semaglutide",
+      related_info_link: "https://www.fda.gov/drugs/drug-shortages/semaglutide",
+    });
+    expect(event.url).toBe(
+      "https://www.fda.gov/drugs/drug-shortages/semaglutide",
+    );
+  });
+
+  test("links a recall to the enforcement record, not the API docs", () => {
+    const event = mapRecall({
+      product_description: "Semaglutide tablets",
+      recall_number: "D-123-2024",
+    });
+    expect(event.id).toBe("D-123-2024");
+    expect(event.url).toContain("recall_number");
+    expect(event.url).toContain("api.fda.gov/drug/enforcement.json");
+    expect(event.url).not.toContain("open.fda.gov/apis");
   });
 });
 

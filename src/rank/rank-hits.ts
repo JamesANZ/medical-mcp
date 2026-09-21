@@ -17,8 +17,10 @@ import {
   type RankHit,
   type RankHitsResult,
   type RankedHit,
+  type RankDisplayMeta,
   type JevState,
 } from "./types.js";
+import { summarizeOmittedHits } from "./display.js";
 import {
   applyDegradedPolicy,
   applyPolicy,
@@ -30,6 +32,50 @@ import { buildJevState, generalizeQuestion } from "./medical-questions.js";
 
 export type JudgeFn = (state: JevState) => Promise<JudgeResult>;
 
+function stripSortFields<T extends RankHit>(
+  hit: RankedHit<T> & {
+    demote?: boolean;
+    sortScore?: number;
+    originalIndex?: number;
+  },
+): RankedHit<T> {
+  const { demote: _d, sortScore: _s, originalIndex: _i, ...rest } = hit;
+  return rest as RankedHit<T>;
+}
+
+function markOverCap<T extends RankHit>(hit: RankedHit<T>): RankedHit<T> {
+  const flags = hit.rank.flags.includes("over_cap")
+    ? hit.rank.flags
+    : [...hit.rank.flags, "over_cap"];
+  return {
+    ...hit,
+    rank: { ...hit.rank, keep: false, flags },
+  };
+}
+
+function applyMaxKeep<T extends RankHit>(
+  all: RankedHit<T>[],
+  maxKeep: number | undefined,
+): { kept: RankedHit<T>[]; omitted: RankedHit<T>[] } {
+  if (!maxKeep || all.length <= maxKeep) {
+    return { kept: all, omitted: [] };
+  }
+  return {
+    kept: all.slice(0, maxKeep),
+    omitted: all.slice(maxKeep).map(markOverCap),
+  };
+}
+
+export function toRankDisplayMeta<T extends RankHit>(
+  ranked: RankHitsResult<T>,
+): RankDisplayMeta {
+  return {
+    omitted: ranked.omitted.length,
+    degraded: ranked.degraded,
+    omittedHits: summarizeOmittedHits(ranked.omitted),
+  };
+}
+
 /**
  * Rank only when the caller asked (`question` or `rerank`). Otherwise return
  * the PubMed list unchanged so default search stays the same.
@@ -39,7 +85,7 @@ export async function maybeRankLiterature<T extends RankHit>(
   args: { query: string; question?: string; rerank?: boolean },
 ): Promise<{
   articles: T[] | RankedHit<T>[];
-  rankMeta?: import("./types.js").RankDisplayMeta;
+  rankMeta?: RankDisplayMeta;
 }> {
   if (!args.question && !args.rerank) {
     return { articles };
@@ -51,10 +97,7 @@ export async function maybeRankLiterature<T extends RankHit>(
   });
   return {
     articles: ranked.kept,
-    rankMeta: {
-      omitted: ranked.omitted.length,
-      degraded: ranked.degraded,
-    },
+    rankMeta: toRankDisplayMeta(ranked),
   };
 }
 
@@ -104,10 +147,11 @@ export async function rankHits<T extends RankHit>(
   }
 
   if (!hasTypeSafeKey()) {
-    const kept = applyDegradedPolicy(hits);
+    const all = applyDegradedPolicy(hits);
+    const split = applyMaxKeep(all, maxKeep);
     return {
-      kept: maxKeep ? kept.slice(0, maxKeep) : kept,
-      omitted: [],
+      kept: split.kept,
+      omitted: split.omitted,
       degraded: true,
       question,
     };
@@ -136,10 +180,11 @@ export async function rankHits<T extends RankHit>(
 
   const failed = judgements.some((row) => !row.judged.ok);
   if (failed) {
-    const kept = applyDegradedPolicy(hits);
+    const all = applyDegradedPolicy(hits);
+    const split = applyMaxKeep(all, maxKeep);
     return {
-      kept: maxKeep ? kept.slice(0, maxKeep) : kept,
-      omitted: [],
+      kept: split.kept,
+      omitted: split.omitted,
       degraded: true,
       question,
     };
@@ -172,19 +217,15 @@ export async function rankHits<T extends RankHit>(
     };
   });
 
-  const omitted = scored.filter((hit) => !hit.rank.keep);
-  const survivors = sortRanked(scored.filter((hit) => hit.rank.keep));
-  const kept = (maxKeep ? survivors.slice(0, maxKeep) : survivors).map(
-    ({ demote: _d, sortScore: _s, originalIndex: _i, ...hit }) =>
-      hit as RankedHit<T>,
+  const dropped = scored.filter((hit) => !hit.rank.keep).map(stripSortFields);
+  const survivors = sortRanked(scored.filter((hit) => hit.rank.keep)).map(
+    stripSortFields,
   );
+  const split = applyMaxKeep(survivors, maxKeep);
 
   return {
-    kept,
-    omitted: omitted.map(
-      ({ demote: _d, sortScore: _s, originalIndex: _i, ...hit }) =>
-        hit as RankedHit<T>,
-    ),
+    kept: split.kept,
+    omitted: [...dropped, ...split.omitted],
     degraded: generalized.degraded,
     question,
   };
