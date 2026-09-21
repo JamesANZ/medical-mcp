@@ -69,6 +69,9 @@ function createClaudeConfig() {
     console.log("📋 Available medical tools:");
     console.log("  • search-drugs - Search FDA drug database");
     console.log("  • search-medical-literature - Search PubMed articles");
+    console.log(
+      "  • rank-search-hits - Reorder literature hits for a clinical question",
+    );
     console.log("  • search-drug-nomenclature - Search RxNorm database");
     console.log("  • search-google-scholar - Search Google Scholar");
     console.log("  • search-clinical-guidelines - Search medical guidelines");

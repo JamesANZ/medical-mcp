@@ -74,6 +74,10 @@ typings/
 # dotenv environment variables file
 .env
 .env.test
+key.md
+
+# Local ranker eval dumps (live PubMed/JEV, not for git)
+eval/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

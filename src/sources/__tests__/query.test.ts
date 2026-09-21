@@ -290,9 +290,10 @@ describe("source catalog", () => {
     expect(ids).not.toContain("cochrane");
 
     const text = formatSourceCatalog(catalog).content[0].text;
-    expect(text).toContain("MCP tools on this server (16)");
+    expect(text).toContain("MCP tools on this server (17)");
     expect(text).toContain("`search-drugs`");
     expect(text).toContain("`search-medical-literature`");
+    expect(text).toContain("`rank-search-hits`");
     expect(text).toContain(
       "search-drugs` fans out to the five regulators only",
     );

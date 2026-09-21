@@ -32,6 +32,7 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
     requiresKey: true,
     tools: [
       "search-medical-literature",
+      "rank-search-hits",
       "get-article-details",
       "search-clinical-guidelines",
       "search-pediatric-literature",

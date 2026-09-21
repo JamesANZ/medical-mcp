@@ -65,6 +65,8 @@ import {
   classifyEvidence,
   formatEvidenceTag,
 } from "./utils/evidence-grading.js";
+import { appendRankFooter, formatRankLine } from "./rank/display.js";
+import type { RankDisplayMeta } from "./rank/types.js";
 import {
   fdaLabelHasPediatricUse,
   pediatricDrugsEmptyMessage,
@@ -791,11 +793,12 @@ export function formatPubMedArticles(
     uniqueResults: number;
     duplicatesRemoved: number;
   },
+  rankMeta?: RankDisplayMeta,
 ) {
   if (articles.length === 0) {
-    return createMCPResponse(
-      `No medical articles found for "${query}". Try different search terms or check the spelling.`,
-    );
+    let text = `No medical articles found for "${query}". Try different search terms or check the spelling.`;
+    if (rankMeta) text = appendRankFooter(text, rankMeta);
+    return createMCPResponse(appendCacheInfo(text, metadata));
   }
 
   let result = `**Medical Literature Search: "${query}"**\n\n`;
@@ -813,6 +816,9 @@ export function formatPubMedArticles(
     result += `${index + 1}. **${article.title}**\n`;
     if (evidenceStr) {
       result += `   Evidence: ${evidenceStr}\n`;
+    }
+    if (article.rank) {
+      result += `${formatRankLine(article.rank)}\n`;
     }
     result += `   Authors: ${article.authors.join(", ")}\n`;
     result += `   Journal: ${article.journal}\n`;
@@ -836,6 +842,9 @@ export function formatPubMedArticles(
     result += "\n";
   });
 
+  if (rankMeta) {
+    result = appendRankFooter(result, rankMeta);
+  }
   return createMCPResponse(appendCacheInfo(result, metadata));
 }
 
@@ -1121,14 +1130,12 @@ export function formatPediatricJournals(
   articles: PediatricJournalArticle[],
   query: string,
   metadata?: CacheMetadata,
+  rankMeta?: RankDisplayMeta,
 ) {
   if (articles.length === 0) {
-    return createMCPResponse(
-      appendCacheInfo(
-        `No pediatric journal articles found for "${query}". Try a different search term.`,
-        metadata,
-      ),
-    );
+    let text = `No pediatric journal articles found for "${query}". Try a different search term.`;
+    if (rankMeta) text = appendRankFooter(text, rankMeta);
+    return createMCPResponse(appendCacheInfo(text, metadata));
   }
 
   let result = `**Pediatric Journal Articles: "${query}"**\n\n`;
@@ -1136,6 +1143,9 @@ export function formatPediatricJournals(
 
   articles.forEach((article, index) => {
     result += `${index + 1}. **${article.title}**\n`;
+    if ((article as any).rank) {
+      result += `${formatRankLine((article as any).rank)}\n`;
+    }
     result += `   Authors: ${article.authors.join(", ")}\n`;
     result += `   Journal: ${article.journal}\n`;
     result += `   Publication Date: ${article.publication_date}\n`;
@@ -1156,6 +1166,9 @@ export function formatPediatricJournals(
   result += `\n🚨 **CRITICAL SAFETY WARNING:**\n`;
   result += `Pediatric journal articles are retrieved dynamically from PubMed.\n\n`;
   result = addDataNote(result);
+  if (rankMeta) {
+    result = appendRankFooter(result, rankMeta);
+  }
 
   return createMCPResponse(appendCacheInfo(result, metadata));
 }

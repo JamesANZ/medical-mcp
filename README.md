@@ -61,7 +61,8 @@ cd medical-mcp && npm install && npm run build
 
 ### 🔬 Medical Literature
 
-- **`search-medical-literature`** – Search 30M+ PubMed articles (with evidence grading)
+- **`search-medical-literature`** – Search 30M+ PubMed articles (with evidence grading). Optional `question` or `rerank` reorders those hits so papers that actually answer the question sit above papers that only share keywords.
+- **`rank-search-hits`** – Same rerank for a list you already have (title + abstract). Retrieval ranking only — not diagnosis or advice.
 - **`get-article-details`** – Detailed article info by PMID
 - **`search-google-scholar`** – Academic papers via Monid TinyFish (`research_paper`) when `MONID_API_KEY` is set; otherwise Semantic Scholar
 - **`search-medical-journals`** – Top journals (NEJM, JAMA, Lancet, BMJ, Nature Medicine)
@@ -75,7 +76,7 @@ cd medical-mcp && npm install && npm run build
 ### 👶 Pediatric Sources
 
 - **`search-pediatric-guidelines`** – AAP policy/clinical reports via PubMed, plus Bright Futures. Off-domain web hits are dropped; labels come from the page, not from which search ran.
-- **`search-pediatric-literature`** – Research from major pediatric journals
+- **`search-pediatric-literature`** – Research from major pediatric journals. Optional `question` / `rerank` like medical literature.
 - **`search-pediatric-drugs`** – Drugs with pediatric labeling, NDC, manufacturer, and DailyMed URL
 
 ### 🛡️ Reliability & Monitoring
@@ -236,6 +237,7 @@ All upstream API responses are validated against Zod schemas. If a source change
 | `NCBI_API_KEY`     | _(none)_ | Free PubMed API key — 3x throughput. Get one at [NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)                                                                |
 | `MONID_API_KEY`    | _(none)_ | Optional. When set, Scholar/AAP/PMC HTML use Monid's TinyFish search and fetch (Tavily-style web scraper). Get a key at [Monid](https://app.monid.ai/access/api-keys) |
 | `TINYFISH_API_KEY` | _(none)_ | Optional fallback if you call TinyFish directly instead of through Monid.                                                                                             |
+| `TYPESAFE_API_KEY` | _(none)_ | Optional. Needed to rerank literature hits with JEV (`jev-1.13.0`). Without it, search works as before. Get a key at [TypeSafe](https://typesafe.ai)                  |
 | `LOG_LEVEL`        | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                                                                                             |
 
 **Cache:**
@@ -288,6 +290,9 @@ src/
 ├── constants.ts                # API URLs, config constants
 ├── types.ts                    # TypeScript types
 ├── logger.ts                   # Structured leveled logging
+├── rank/                       # Optional JEV post-retrieval ranker (question vs abstract)
+│   ├── policy.ts               # Keep / demote / drop — no HTTP
+│   └── jev-client.ts           # TypeSafe System One client (jev-1.13.0)
 ├── cache/
 │   ├── config.ts               # TTL policies, env var support
 │   └── manager.ts              # In-memory LRU cache

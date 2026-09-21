@@ -30,6 +30,13 @@ export const SUPPORTED_DRUG_COUNTRIES = ["US", "AU", "CA", "EU"] as const;
  */
 export const NCBI_API_KEY = process.env.NCBI_API_KEY || "";
 
+/**
+ * Optional TypeSafe key. When set, literature search can rerank hits with JEV
+ * so papers that actually answer the question rise above keyword-only matches.
+ * Read at call time in the ranker — this export is documentation/config only.
+ */
+export const TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY || "";
+
 // Controlled vocabulary: PubMed publication types for guidelines
 export const GUIDELINE_PUBLICATION_TYPES = [
   '"practice guideline"[pt]',

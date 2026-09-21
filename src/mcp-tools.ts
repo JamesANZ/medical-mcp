@@ -16,4 +16,5 @@ export const MCP_TOOL_NAMES = [
   "search-pediatric-guidelines",
   "search-pediatric-literature",
   "search-pediatric-drugs",
+  "rank-search-hits",
 ] as const;

@@ -44,6 +44,9 @@ import {
   formatSourceCatalog,
 } from "./sources/format.js";
 import { MONID_API_KEY } from "./constants.js";
+import { maybeRankLiterature, rankHits } from "./rank/rank-hits.js";
+import { formatRankedSearchHits } from "./rank/format.js";
+import { RankSearchHitSchema } from "./rank/schema.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
@@ -218,7 +221,7 @@ server.tool(
 
 server.tool(
   "search-medical-literature",
-  "Search for medical research articles in PubMed",
+  "Search for medical research articles in PubMed. Optional question/rerank reorders hits for the question (retrieval only — not diagnosis or advice).",
   {
     query: z.string().describe("Medical topic or condition to search for"),
     max_results: z
@@ -229,13 +232,73 @@ server.tool(
       .optional()
       .default(10)
       .describe("Maximum number of articles to return (max 20)"),
+    question: z
+      .string()
+      .optional()
+      .describe(
+        "Clinical question to rank hits against. Retrieval ranking only — never diagnose, dose, or advise.",
+      ),
+    rerank: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, rerank PubMed hits. Uses question when set, otherwise the search query.",
+      ),
   },
-  async ({ query, max_results }) => {
+  async ({ query, max_results, question, rerank }) => {
     try {
       const result = await searchPubMedArticlesCached(query, max_results);
-      return formatPubMedArticles(result.data, query, result.metadata);
+      const ranked = await maybeRankLiterature(result.data, {
+        query,
+        question,
+        rerank,
+      });
+      return formatPubMedArticles(
+        ranked.articles,
+        query,
+        result.metadata,
+        undefined,
+        ranked.rankMeta,
+      );
     } catch (error: any) {
       return createErrorResponse("searching medical literature", error);
+    }
+  },
+);
+
+server.tool(
+  "rank-search-hits",
+  "Reorder already-fetched literature hits for a clinical question. Retrieval ranking only — never diagnoses, doses, or advises.",
+  {
+    question: z
+      .string()
+      .min(1)
+      .describe(
+        "General clinical question to rank against, not a specific patient story",
+      ),
+    hits: z
+      .array(RankSearchHitSchema)
+      .min(1)
+      .describe("Search hits (title + abstract). Do not send full text."),
+    max_keep: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .default(5)
+      .describe("Maximum papers to keep after ranking"),
+  },
+  async ({ question, hits, max_keep }) => {
+    try {
+      const ranked = await rankHits({
+        question,
+        hits,
+        maxKeep: max_keep,
+      });
+      return formatRankedSearchHits(ranked, ranked.question);
+    } catch (error: any) {
+      return createErrorResponse("ranking search hits", error);
     }
   },
 );
@@ -500,7 +563,7 @@ server.tool(
 
 server.tool(
   "search-pediatric-literature",
-  "Search for research articles in major pediatric journals (Pediatrics, JAMA Pediatrics, etc.)",
+  "Search for research articles in major pediatric journals (Pediatrics, JAMA Pediatrics, etc.). Optional question/rerank reorders hits for the question (retrieval only — not diagnosis or advice).",
   {
     query: z
       .string()
@@ -515,11 +578,33 @@ server.tool(
       .optional()
       .default(10)
       .describe("Maximum number of articles to return (max 20)"),
+    question: z
+      .string()
+      .optional()
+      .describe(
+        "Clinical question to rank hits against. Retrieval ranking only — never diagnose, dose, or advise.",
+      ),
+    rerank: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, rerank PubMed hits. Uses question when set, otherwise the search query.",
+      ),
   },
-  async ({ query, max_results }) => {
+  async ({ query, max_results, question, rerank }) => {
     try {
       const result = await searchPediatricJournalsCached(query, max_results);
-      return formatPediatricJournals(result.data, query, result.metadata);
+      const ranked = await maybeRankLiterature(result.data, {
+        query,
+        question,
+        rerank,
+      });
+      return formatPediatricJournals(
+        ranked.articles as typeof result.data,
+        query,
+        result.metadata,
+        ranked.rankMeta,
+      );
     } catch (error: any) {
       return createErrorResponse("searching pediatric literature", error);
     }
