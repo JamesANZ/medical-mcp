@@ -71,6 +71,7 @@ cd medical-mcp && npm install && npm run build
 
 - **`search-clinical-guidelines`** – Practice recommendations from medical organizations
 - **`search-clinical-trials`** – ClinicalTrials.gov
+- **`research-medical-topic`** – One question across the label, FAERS, PubMed, and trials, in separate sections. Optional web, Reddit, YouTube, and X discussion is off unless `AGENT_REACH_ENABLED` is set and the caller names those sources. A Reddit or YouTube hit stays an unverified user report. It is not merged into the study or FAERS sections. This server does not install Agent Reach, log anyone in, or read browser cookies.
 - **`list-sources`** – Full catalog of registry adapters and dedicated-tool sources (WHO, PubMed, RxNorm, Scholar, AAP), including which MCP tool reaches each. This is not the `search-drugs` five-regulator fanout.
 
 ### 👶 Pediatric Sources
@@ -280,6 +281,8 @@ All upstream API responses are validated against Zod schemas. If a source change
 | `MONID_API_KEY`    | _(none)_ | Optional. When set, Scholar/AAP/PMC HTML use Monid's TinyFish search and fetch (Tavily-style web scraper). Get a key at [Monid](https://app.monid.ai/access/api-keys) |
 | `TINYFISH_API_KEY` | _(none)_ | Optional fallback if you call TinyFish directly instead of through Monid.                                                                                             |
 | `TYPESAFE_API_KEY` | _(none)_ | Optional. Needed to rerank literature hits with JEV (`jev-1.13.0`). Without it, search works as before. Get a key at [TypeSafe](https://typesafe.ai)                  |
+| `AGENT_REACH_ENABLED` | _(off)_ | Optional. Set to `true` to let `research-medical-topic` call Agent Reach CLIs for web, YouTube, Reddit, and X. Official sections still return when this is unset. Install and health checks are documented by [Agent Reach](https://github.com/Panniantong/Agent-Reach). This package does not install it. |
+| `AGENT_REACH_CHANNELS` | _(none)_ | Comma-separated allowlist: `web`, `youtube`, `reddit`, `x`. A channel runs only when it is listed here and the caller requested it. X also needs `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` on the server process. |
 | `LOG_LEVEL`        | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARN`, `ERROR`, `SILENT`                                                                                                             |
 
 **Cache:**

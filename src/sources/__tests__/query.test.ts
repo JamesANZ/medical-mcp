@@ -306,6 +306,7 @@ describe("source catalog", () => {
     );
     expect(catalog.find((row) => row.id === "fda-faers")?.tools).toEqual([
       "search-drug-safety",
+      "research-medical-topic",
     ]);
     expect(catalog.find((row) => row.id === "tinyfish-fetch")?.exposed).toBe(
       false,
@@ -315,7 +316,7 @@ describe("source catalog", () => {
     expect(ids).not.toContain("cochrane");
 
     const text = formatSourceCatalog(catalog).content[0].text;
-    expect(text).toContain("MCP tools on this server (17)");
+    expect(text).toContain("MCP tools on this server (18)");
     expect(text).toContain("`search-drugs`");
     expect(text).toContain("`search-medical-literature`");
     expect(text).toContain("`rank-search-hits`");

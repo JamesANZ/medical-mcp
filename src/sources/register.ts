@@ -36,6 +36,7 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
       "get-article-details",
       "search-clinical-guidelines",
       "search-pediatric-literature",
+      "research-medical-topic",
     ],
     exposed: true,
   },
@@ -79,6 +80,56 @@ const DEDICATED_SOURCES: SourceCatalogRow[] = [
     tools: ["search-pediatric-guidelines"],
     exposed: true,
   },
+  {
+    id: "openfda-labels",
+    name: "OpenFDA drug labels",
+    country: "US",
+    domain: "regulator",
+    access: "rest",
+    requiresKey: false,
+    tools: ["research-medical-topic"],
+    exposed: true,
+  },
+  {
+    id: "agent-reach-web",
+    name: "Web search (optional, Agent Reach / Exa)",
+    country: "INTL",
+    domain: "literature",
+    access: "cli",
+    requiresKey: false,
+    tools: ["research-medical-topic"],
+    exposed: true,
+  },
+  {
+    id: "agent-reach-youtube",
+    name: "YouTube (optional, Agent Reach / yt-dlp)",
+    country: "INTL",
+    domain: "literature",
+    access: "cli",
+    requiresKey: false,
+    tools: ["research-medical-topic"],
+    exposed: true,
+  },
+  {
+    id: "agent-reach-reddit",
+    name: "Reddit (optional, Agent Reach, login required)",
+    country: "INTL",
+    domain: "literature",
+    access: "cli",
+    requiresKey: false,
+    tools: ["research-medical-topic"],
+    exposed: true,
+  },
+  {
+    id: "agent-reach-x",
+    name: "X (optional, Agent Reach, credentials required)",
+    country: "INTL",
+    domain: "literature",
+    access: "cli",
+    requiresKey: false,
+    tools: ["research-medical-topic"],
+    exposed: true,
+  },
 ];
 
 function toolsForAdapter(adapter: SourceAdapter<unknown>): {
@@ -95,7 +146,7 @@ function toolsForAdapter(adapter: SourceAdapter<unknown>): {
       };
     case "clinicaltrials":
       return {
-        tools: ["search-clinical-trials"],
+        tools: ["search-clinical-trials", "research-medical-topic"],
         exposed: true,
       };
     default:
@@ -103,7 +154,7 @@ function toolsForAdapter(adapter: SourceAdapter<unknown>): {
         return { tools: ["search-drugs"], exposed: true };
       }
       if (adapter.domain === "safety") {
-        return { tools: ["search-drug-safety"], exposed: true };
+        return { tools: ["search-drug-safety", "research-medical-topic"], exposed: true };
       }
       if (adapter.domain === "trials") {
         return { tools: ["search-clinical-trials"], exposed: true };
