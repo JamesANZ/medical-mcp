@@ -129,6 +129,46 @@ Add to `claude_desktop_config.json`:
 
 Restart Claude Desktop after configuration.
 
+### Docker
+
+The container runs the HTTP server. It listens on port 3000 inside the container. `-p 3000:3000` publishes that port on your machine. Optional API keys are passed at run time and are not written into the image.
+
+```bash
+docker build -t medical-mcp:local .
+docker run --name medical-mcp --rm -p 3000:3000 medical-mcp:local
+```
+
+If something on the machine is already listening on port 3000, publish a different host port and point the client at that port. The process inside the container still uses 3000.
+
+```bash
+docker run --name medical-mcp --rm -p 3010:3000 medical-mcp:local
+```
+
+In another terminal:
+
+```bash
+docker logs medical-mcp
+docker stop medical-mcp
+```
+
+`docker stop` sends SIGTERM. The process stops accepting connections and exits.
+
+Point an MCP client at `http://127.0.0.1:3000/mcp`. A health URL is not an MCP session. The client has to send `initialize` and then `tools/call`.
+
+Pass an optional key from your shell without putting it in the image:
+
+```bash
+docker run --rm -p 3000:3000 -e NCBI_API_KEY medical-mcp:local
+```
+
+stdio still works when a client owns the container's standard input. Keep stdin open and do not allocate a terminal:
+
+```bash
+docker run -i --rm medical-mcp:local node build/index.js
+```
+
+`-i` keeps stdin open for protocol messages. Leave off `-t`. A TTY is for an interactive terminal and can alter the bytes this protocol uses. Logs stay on stderr so they are not mixed into stdout. The lesson and the Kubernetes steps are in [docs/learning-docker-kubernetes.md](docs/learning-docker-kubernetes.md).
+
 ## Usage Examples
 
 ### Search for Drug Information

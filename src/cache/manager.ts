@@ -194,6 +194,8 @@ class CacheManager {
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
     }, this.config.cleanupInterval);
+    // Do not keep the process alive after the HTTP server has closed.
+    this.cleanupInterval.unref();
   }
 
   /**

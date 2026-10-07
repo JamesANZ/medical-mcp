@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: medical-mcp-config
+  labels:
+    app: medical-mcp
+data:
+  HOST: "0.0.0.0"
+  PORT: "3000"
+  LOG_LEVEL: "INFO"
+  CACHE_ENABLED: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: medical-mcp
+  labels:
+    app: medical-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: medical-mcp
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: medical-mcp
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: medical-mcp
+          image: medical-mcp:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: medical-mcp-config
+          env:
+            - name: NCBI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: medical-mcp-secrets
+                  key: NCBI_API_KEY
+                  optional: true
+            - name: MONID_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: medical-mcp-secrets
+                  key: MONID_API_KEY
+                  optional: true
+            - name: TINYFISH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: medical-mcp-secrets
+                  key: TINYFISH_API_KEY
+                  optional: true
+            - name: TYPESAFE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: medical-mcp-secrets
+                  key: TYPESAFE_API_KEY
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: medical-mcp
+  labels:
+    app: medical-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app: medical-mcp
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

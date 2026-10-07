@@ -1,0 +1,12 @@
+node_modules
+build
+.git
+coverage
+.env
+.env.*
+*.md
+docs
+k8s
+.cursor
+src/**/__tests__
+src/**/*.test.ts
